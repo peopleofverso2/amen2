@@ -1,4 +1,4 @@
-import { useState, useCallback, DragEvent, useEffect, useRef } from 'react';
+import { useState, useCallback, DragEvent, useEffect, useRef, KeyboardEvent } from 'react';
 import ReactFlow, {
   Background,
   Controls,
@@ -48,6 +48,10 @@ const Flow: React.FC<ScenarioEditorProps> = ({ projectId, onBackToLibrary }) => 
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const [reactFlowInstance, setReactFlowInstance] = useState<any>(null);
 
+  const [history, setHistory] = useState<{ nodes: CustomNode[]; edges: CustomEdge[] }[]>([]);
+  const [currentHistoryIndex, setCurrentHistoryIndex] = useState(-1);
+  const [isUndoRedo, setIsUndoRedo] = useState(false);
+
   const onInit = useCallback((instance: any) => {
     setReactFlowInstance(instance);
   }, []);
@@ -94,12 +98,11 @@ const Flow: React.FC<ScenarioEditorProps> = ({ projectId, onBackToLibrary }) => 
       event.preventDefault();
 
       const type = event.dataTransfer.getData('application/reactflow');
-      if (!type || !reactFlowInstance || !reactFlowWrapper.current) return;
+      if (!type || !reactFlowInstance) return;
 
-      const reactFlowBounds = reactFlowWrapper.current.getBoundingClientRect();
-      const position = reactFlowInstance.project({
-        x: event.clientX - reactFlowBounds.left,
-        y: event.clientY - reactFlowBounds.top,
+      const position = reactFlowInstance.screenToFlowPosition({
+        x: event.clientX,
+        y: event.clientY,
       });
 
       const newNodeId = getId();
@@ -116,40 +119,19 @@ const Flow: React.FC<ScenarioEditorProps> = ({ projectId, onBackToLibrary }) => 
               isPlaybackMode: isPlaybackMode,
               onDataChange: (data: any) => handleNodeDataChange(newNodeId, data),
             }
-          : type === 'button'
-            ? {
-                id: newNodeId,
-                label: 'Nouveau bouton',
-                text: 'Cliquez-moi',
-                style: {
-                  backgroundColor: '#2196f3',
-                  textColor: '#ffffff',
-                  borderRadius: '4px',
-                  fontSize: '14px',
-                  borderStyle: 'none',
-                  borderColor: '#000000',
-                  borderWidth: '1px',
-                  boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
-                  padding: '8px 16px',
-                  textAlign: 'center',
-                  transition: 'all 0.3s ease',
-                  hoverBackgroundColor: '#1976d2',
-                  hoverTextColor: '#ffffff',
-                  hoverScale: '1.05'
-                },
-                variant: 'contained',
-                size: 'medium',
-                isPlaybackMode: isPlaybackMode,
-                onDataChange: (data: any) => handleNodeDataChange(newNodeId, data),
-              }
-            : {
-                label: `Nouveau ${type}`,
-              },
+          : {
+              id: newNodeId,
+              label: 'Nouveau bouton',
+              text: 'Cliquez-moi',
+              isPlaybackMode: isPlaybackMode,
+              onDataChange: (data: any) => handleNodeDataChange(newNodeId, data),
+            },
       };
 
       setNodes((nds) => nds.concat(newNode));
+      addToHistory({ nodes: [...nodes, newNode], edges });
     },
-    [isPlaybackMode, reactFlowInstance]
+    [reactFlowInstance, nodes, edges, isPlaybackMode]
   );
 
   const handleSave = async () => {
@@ -172,6 +154,103 @@ const Flow: React.FC<ScenarioEditorProps> = ({ projectId, onBackToLibrary }) => 
     }
   };
 
+  const onNodesDelete = useCallback(
+    (deleted: Node[]) => {
+      setNodes((nds) => nds.filter((node) => !deleted.find((del) => del.id === node.id)));
+    },
+    []
+  );
+
+  const onEdgesDelete = useCallback(
+    (deleted: Edge[]) => {
+      setEdges((eds) => eds.filter((edge) => !deleted.find((del) => del.id === edge.id)));
+    },
+    []
+  );
+
+  // Initialiser l'historique avec l'état initial
+  useEffect(() => {
+    if (nodes.length > 0 || edges.length > 0) {
+      setHistory([{ nodes, edges }]);
+      setCurrentHistoryIndex(0);
+    }
+  }, []); // Ne s'exécute qu'une fois au montage
+
+  // Sauvegarder l'état dans l'historique lorsque les nœuds ou les liens changent
+  useEffect(() => {
+    if (!isUndoRedo && (nodes.length > 0 || edges.length > 0)) {
+      const newState = { nodes, edges };
+      setHistory(prev => {
+        // Ne pas ajouter si l'état est identique au dernier
+        if (currentHistoryIndex >= 0 && 
+            JSON.stringify(prev[currentHistoryIndex]) === JSON.stringify(newState)) {
+          return prev;
+        }
+        const newHistory = prev.slice(0, currentHistoryIndex + 1);
+        return [...newHistory, newState];
+      });
+      setCurrentHistoryIndex(prev => prev + 1);
+    }
+    setIsUndoRedo(false);
+  }, [nodes, edges]);
+
+  const handleUndo = useCallback(() => {
+    if (currentHistoryIndex > 0) {
+      setIsUndoRedo(true);
+      const previousState = history[currentHistoryIndex - 1];
+      if (previousState) {
+        setNodes(previousState.nodes);
+        setEdges(previousState.edges);
+        setCurrentHistoryIndex(prev => prev - 1);
+      }
+    }
+  }, [currentHistoryIndex, history]);
+
+  const handleRedo = useCallback(() => {
+    if (currentHistoryIndex < history.length - 1) {
+      setIsUndoRedo(true);
+      const nextState = history[currentHistoryIndex + 1];
+      if (nextState) {
+        setNodes(nextState.nodes);
+        setEdges(nextState.edges);
+        setCurrentHistoryIndex(prev => prev + 1);
+      }
+    }
+  }, [currentHistoryIndex, history]);
+
+  const handleKeyPress = useCallback((event: KeyboardEvent) => {
+    if (event.key === 'Delete' || event.key === 'Backspace') {
+      const selectedNodes = nodes.filter(node => node.selected);
+      const selectedEdges = edges.filter(edge => edge.selected);
+      
+      if (selectedNodes.length > 0) {
+        onNodesDelete(selectedNodes);
+      }
+      if (selectedEdges.length > 0) {
+        onEdgesDelete(selectedEdges);
+      }
+    }
+
+    // Gérer Ctrl+Z pour annuler
+    if (event.key === 'z' && (event.ctrlKey || event.metaKey)) {
+      event.preventDefault();
+      handleUndo();
+    }
+
+    // Gérer Ctrl+Y pour rétablir
+    if (event.key === 'y' && (event.ctrlKey || event.metaKey)) {
+      event.preventDefault();
+      handleRedo();
+    }
+  }, [nodes, edges, onNodesDelete, onEdgesDelete, handleUndo, handleRedo]);
+
+  useEffect(() => {
+    document.addEventListener('keydown', handleKeyPress);
+    return () => {
+      document.removeEventListener('keydown', handleKeyPress);
+    };
+  }, [handleKeyPress]);
+
   return (
     <Box sx={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
       <AppBar position="static" color="default" elevation={1}>
@@ -188,7 +267,6 @@ const Flow: React.FC<ScenarioEditorProps> = ({ projectId, onBackToLibrary }) => 
       <Box sx={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
         <Sidebar 
           onSave={handleSave}
-          onOpen={onBackToLibrary}
           isPlayMode={isPlaybackMode}
           onPlayModeToggle={() => setIsPlaybackMode(!isPlaybackMode)}
         />
@@ -198,26 +276,21 @@ const Flow: React.FC<ScenarioEditorProps> = ({ projectId, onBackToLibrary }) => 
             flex: 1, 
             position: 'relative',
             height: 'calc(100vh - 64px)',
-            '& .react-flow__panel': {
-              zIndex: 5
-            },
-            '& .react-flow__minimap': {
-              zIndex: 5
-            },
-            '& .react-flow__controls': {
-              zIndex: 5
+            '& .react-flow__node': {
+              '&.selected': {
+                boxShadow: '0 0 0 2px #1976d2',
+              }
             },
             '& .react-flow__handle': {
-              zIndex: 3
-            },
-            '& .react-flow__node': {
-              zIndex: 2
+              background: '#1976d2',
+              width: 8,
+              height: 8,
             },
             '& .react-flow__edge': {
-              zIndex: 1
-            },
-            '& .react-flow__background': {
-              zIndex: 0
+              '&.selected': {
+                stroke: '#1976d2',
+                strokeWidth: 3,
+              }
             }
           }}
         >
@@ -227,21 +300,12 @@ const Flow: React.FC<ScenarioEditorProps> = ({ projectId, onBackToLibrary }) => 
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
-            onDragOver={onDragOver}
-            onDrop={onDrop}
             onInit={onInit}
+            onDrop={onDrop}
+            onDragOver={onDragOver}
             nodeTypes={nodeTypes}
             fitView
-            deleteKeyCode="Delete"
-            selectionKeyCode="Shift"
-            multiSelectionKeyCode="Control"
-            snapToGrid={true}
-            snapGrid={[15, 15]}
-            defaultEdgeOptions={{
-              type: 'smoothstep',
-              animated: true
-            }}
-            proOptions={{ hideAttribution: true }}
+            attributionPosition="bottom-left"
           >
             <Background />
             <Controls />

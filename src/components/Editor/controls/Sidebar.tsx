@@ -1,23 +1,21 @@
 import React from 'react';
-import { Box, Typography, Button, Divider } from '@mui/material';
+import { Box, Button, IconButton, Typography, Divider } from '@mui/material';
 import {
-  PlayArrow as PlayIcon,
   Save as SaveIcon,
-  FolderOpen as OpenIcon,
+  PlayArrow as PlayIcon,
+  Stop as StopIcon,
   VideoCall as VideoIcon,
   SmartButton as ButtonIcon,
 } from '@mui/icons-material';
 
 interface SidebarProps {
-  onSave?: () => void;
-  onOpen?: () => void;
+  onSave: () => void;
   isPlayMode?: boolean;
   onPlayModeToggle?: () => void;
 }
 
 const Sidebar: React.FC<SidebarProps> = ({
   onSave,
-  onOpen,
   isPlayMode,
   onPlayModeToggle,
 }) => {
@@ -29,55 +27,33 @@ const Sidebar: React.FC<SidebarProps> = ({
   return (
     <Box
       sx={{
-        width: 240,
-        height: 'calc(100vh - 64px)',
+        width: '200px',
+        padding: '8px',
         backgroundColor: 'background.paper',
         borderRight: 1,
         borderColor: 'divider',
-        p: 2,
         display: 'flex',
         flexDirection: 'column',
-        gap: 2,
-        overflow: 'auto',
-        position: 'relative',
-        zIndex: 2, // S'assurer que la sidebar est au-dessus de ReactFlow
+        gap: 1,
       }}
     >
-      <Typography variant="h6" gutterBottom>
-        Contrôles
-      </Typography>
+      <Box sx={{ display: 'flex', gap: 1 }}>
+        <IconButton onClick={onSave} color="primary" size="small">
+          <SaveIcon />
+        </IconButton>
 
-      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-        <Button
-          variant="contained"
-          startIcon={<SaveIcon />}
-          onClick={onSave}
-          fullWidth
+        <IconButton 
+          onClick={onPlayModeToggle} 
+          color={isPlayMode ? "error" : "primary"}
+          size="small"
         >
-          Sauvegarder
-        </Button>
-        <Button
-          variant="outlined"
-          startIcon={<OpenIcon />}
-          onClick={onOpen}
-          fullWidth
-        >
-          Ouvrir
-        </Button>
-        <Button
-          variant="outlined"
-          startIcon={<PlayIcon />}
-          onClick={onPlayModeToggle}
-          color={isPlayMode ? 'secondary' : 'primary'}
-          fullWidth
-        >
-          {isPlayMode ? 'Mode édition' : 'Mode lecture'}
-        </Button>
+          {isPlayMode ? <StopIcon /> : <PlayIcon />}
+        </IconButton>
       </Box>
 
-      <Divider sx={{ my: 2 }} />
+      <Divider />
 
-      <Typography variant="subtitle1" gutterBottom>
+      <Typography variant="subtitle2" sx={{ pl: 1 }}>
         Éléments
       </Typography>
 
@@ -86,26 +62,36 @@ const Sidebar: React.FC<SidebarProps> = ({
           display: 'flex',
           flexDirection: 'column',
           gap: 1,
+          px: 1,
         }}
       >
-        <Button
-          variant="outlined"
-          startIcon={<VideoIcon />}
+        <div
+          draggable
           onDragStart={(event) => onDragStart(event, 'video')}
-          draggable
-          fullWidth
+          style={{ cursor: 'grab' }}
         >
-          Vidéo
-        </Button>
-        <Button
-          variant="outlined"
-          startIcon={<ButtonIcon />}
+          <Button
+            variant="outlined"
+            startIcon={<VideoIcon />}
+            fullWidth
+          >
+            Vidéo
+          </Button>
+        </div>
+
+        <div
+          draggable
           onDragStart={(event) => onDragStart(event, 'button')}
-          draggable
-          fullWidth
+          style={{ cursor: 'grab' }}
         >
-          Bouton
-        </Button>
+          <Button
+            variant="outlined"
+            startIcon={<ButtonIcon />}
+            fullWidth
+          >
+            Bouton
+          </Button>
+        </div>
       </Box>
     </Box>
   );

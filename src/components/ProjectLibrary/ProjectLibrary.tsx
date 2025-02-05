@@ -72,7 +72,7 @@ export const ProjectLibrary: React.FC<ProjectLibraryProps> = ({
     if (window.confirm('Êtes-vous sûr de vouloir supprimer ce projet ?')) {
       try {
         await projectService.deleteProject(id);
-        await loadProjects();
+        setProjects(projects.filter(p => p.id !== id));
       } catch (error) {
         console.error('Error deleting project:', error);
       }
@@ -121,6 +121,7 @@ export const ProjectLibrary: React.FC<ProjectLibraryProps> = ({
               <CardContent>
                 {editingProject?.id === project.id ? (
                   <TextField
+                    key={`edit-${project.id}`}
                     fullWidth
                     value={editingProject.name}
                     onChange={(e) =>
@@ -138,6 +139,7 @@ export const ProjectLibrary: React.FC<ProjectLibraryProps> = ({
                   />
                 ) : (
                   <Box
+                    key={`view-${project.id}`}
                     sx={{
                       display: 'flex',
                       justifyContent: 'space-between',
@@ -174,6 +176,7 @@ export const ProjectLibrary: React.FC<ProjectLibraryProps> = ({
                 )}
                 {project.description && (
                   <Typography
+                    key={`desc-${project.id}`}
                     variant="body2"
                     color="text.secondary"
                     sx={{ mt: 1 }}
@@ -182,6 +185,7 @@ export const ProjectLibrary: React.FC<ProjectLibraryProps> = ({
                   </Typography>
                 )}
                 <Typography
+                  key={`date-${project.id}`}
                   variant="caption"
                   color="text.secondary"
                   sx={{ mt: 1, display: 'block' }}

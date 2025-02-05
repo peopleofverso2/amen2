@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import {
   Box,
   Grid,
@@ -19,9 +19,12 @@ import {
   Add as AddIcon,
   Edit as EditIcon,
   Delete as DeleteIcon,
+  FileDownload as FileDownloadIcon,
+  FileUpload as FileUploadIcon,
 } from '@mui/icons-material';
 import { ProjectService } from '../../services/projectService';
-import { ProjectMetadata } from '../../types/project';
+import { ExportService } from '../../services/exportService';
+import { Project } from '../../types/project';
 
 interface ProjectLibraryProps {
   onProjectSelect: (projectId: string) => void;
@@ -30,7 +33,7 @@ interface ProjectLibraryProps {
 export const ProjectLibrary: React.FC<ProjectLibraryProps> = ({
   onProjectSelect,
 }) => {
-  const [projects, setProjects] = useState<ProjectMetadata[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [newProjectName, setNewProjectName] = useState('');
   const [newProjectDescription, setNewProjectDescription] = useState('');
@@ -39,11 +42,19 @@ export const ProjectLibrary: React.FC<ProjectLibraryProps> = ({
     name: string;
   } | null>(null);
 
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const projectService = ProjectService.getInstance();
+  const exportService = ExportService.getInstance();
 
   const loadProjects = async () => {
-    const projectsList = await projectService.listProjects();
-    setProjects(projectsList);
+    try {
+      const projectsList = await projectService.listProjects();
+      console.log('Loaded projects:', projectsList);
+      setProjects(projectsList);
+    } catch (error) {
+      console.error('Error loading projects:', error);
+      alert('Erreur lors du chargement des projets');
+    }
   };
 
   useEffect(() => {
@@ -94,6 +105,85 @@ export const ProjectLibrary: React.FC<ProjectLibraryProps> = ({
     }
   };
 
+  const handleExportProject = async (project: Project) => {
+    try {
+      // Charger le projet complet avec ses nœuds
+      const fullProject = await projectService.loadProject(project.id);
+      
+      const exportData = await exportService.exportProject(
+        fullProject,
+        fullProject.nodes,
+        fullProject.edges
+      );
+      
+      // Convertir en blob
+      const blob = new Blob([JSON.stringify(exportData)], {
+        type: 'application/json',
+      });
+      
+      // Créer un lien de téléchargement
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${project.name.replace(/\s+/g, '_')}.pov`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Error exporting project:', error);
+      alert('Erreur lors de l\'export du projet');
+    }
+  };
+
+  const handleImportProject = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        try {
+          const data = e.target?.result;
+          if (!data) throw new Error('No data');
+          
+          const importData = await exportService.importProject(data as ArrayBuffer);
+          
+          // Créer un nouveau projet avec un nouvel ID
+          const newProject = {
+            ...importData.project,
+            id: crypto.randomUUID(), // Générer un nouvel ID
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          };
+          
+          // Sauvegarder le projet
+          await projectService.saveProject(newProject);
+          
+          // Rafraîchir la liste
+          await loadProjects();
+          
+          // Sélectionner le nouveau projet
+          onProjectSelect(newProject.id);
+          
+          alert('Projet importé avec succès !');
+        } catch (error) {
+          console.error('Error importing project:', error);
+          alert('Erreur lors de l\'import du projet');
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    } catch (error) {
+      console.error('Error reading file:', error);
+      alert('Erreur lors de la lecture du fichier');
+    }
+    
+    // Réinitialiser l'input file pour permettre de réimporter le même fichier
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
   return (
     <Box sx={{ p: 3 }}>
       <Box
@@ -105,23 +195,39 @@ export const ProjectLibrary: React.FC<ProjectLibraryProps> = ({
         }}
       >
         <Typography variant="h4">Bibliothèque de projets</Typography>
-        <Button
-          variant="contained"
-          startIcon={<AddIcon />}
-          onClick={() => setIsCreateDialogOpen(true)}
-        >
-          Nouveau projet
-        </Button>
+        <Box>
+          <input
+            type="file"
+            ref={fileInputRef}
+            style={{ display: 'none' }}
+            accept=".pov"
+            onChange={handleImportProject}
+          />
+          <Button
+            variant="outlined"
+            startIcon={<FileUploadIcon />}
+            onClick={() => fileInputRef.current?.click()}
+            sx={{ mr: 1 }}
+          >
+            Importer
+          </Button>
+          <Button
+            variant="contained"
+            startIcon={<AddIcon />}
+            onClick={() => setIsCreateDialogOpen(true)}
+          >
+            Nouveau projet
+          </Button>
+        </Box>
       </Box>
 
       <Grid container spacing={3}>
-        {projects.map((project) => (
-          <Grid item xs={12} sm={6} md={4} key={project.id}>
+        {projects.map((project, index) => (
+          <Grid item xs={12} sm={6} md={4} key={index}>
             <Card>
               <CardContent>
                 {editingProject?.id === project.id ? (
                   <TextField
-                    key={`edit-${project.id}`}
                     fullWidth
                     value={editingProject.name}
                     onChange={(e) =>
@@ -139,7 +245,6 @@ export const ProjectLibrary: React.FC<ProjectLibraryProps> = ({
                   />
                 ) : (
                   <Box
-                    key={`view-${project.id}`}
                     sx={{
                       display: 'flex',
                       justifyContent: 'space-between',
@@ -150,6 +255,14 @@ export const ProjectLibrary: React.FC<ProjectLibraryProps> = ({
                       {project.name}
                     </Typography>
                     <Box>
+                      <Tooltip title="Exporter">
+                        <IconButton
+                          size="small"
+                          onClick={() => handleExportProject(project)}
+                        >
+                          <FileDownloadIcon />
+                        </IconButton>
+                      </Tooltip>
                       <Tooltip title="Renommer">
                         <IconButton
                           size="small"
@@ -176,7 +289,6 @@ export const ProjectLibrary: React.FC<ProjectLibraryProps> = ({
                 )}
                 {project.description && (
                   <Typography
-                    key={`desc-${project.id}`}
                     variant="body2"
                     color="text.secondary"
                     sx={{ mt: 1 }}
@@ -185,7 +297,6 @@ export const ProjectLibrary: React.FC<ProjectLibraryProps> = ({
                   </Typography>
                 )}
                 <Typography
-                  key={`date-${project.id}`}
                   variant="caption"
                   color="text.secondary"
                   sx={{ mt: 1, display: 'block' }}
@@ -207,7 +318,6 @@ export const ProjectLibrary: React.FC<ProjectLibraryProps> = ({
         ))}
       </Grid>
 
-      {/* Dialog de création de projet */}
       <Dialog
         open={isCreateDialogOpen}
         onClose={() => setIsCreateDialogOpen(false)}
@@ -224,7 +334,7 @@ export const ProjectLibrary: React.FC<ProjectLibraryProps> = ({
           />
           <TextField
             margin="dense"
-            label="Description (optionnelle)"
+            label="Description"
             fullWidth
             multiline
             rows={3}

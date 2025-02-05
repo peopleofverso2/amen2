@@ -5,11 +5,10 @@ export interface Project {
   id: string;
   name: string;
   description?: string;
+  nodes: Node<CustomNode>[];
+  edges: Edge<CustomEdge>[];
   createdAt: string;
   updatedAt: string;
-  nodes: CustomNode[];
-  edges: CustomEdge[];
-  thumbnail?: string;
 }
 
 export interface ProjectMetadata {
@@ -18,7 +17,6 @@ export interface ProjectMetadata {
   description?: string;
   createdAt: string;
   updatedAt: string;
-  thumbnail?: string;
 }
 
 export interface ProjectLibraryState {

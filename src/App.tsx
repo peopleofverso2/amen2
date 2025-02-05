@@ -4,31 +4,32 @@ import { theme } from './theme';
 import ScenarioEditor from './components/Editor/ScenarioEditor';
 import ProjectLibrary from './components/ProjectLibrary/ProjectLibrary';
 import { ProjectService } from './services/projectService';
+import { Project } from './types/project';
 
 function App() {
-  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const projectService = ProjectService.getInstance();
 
   const handleProjectSelect = async (projectId: string) => {
     try {
       const project = await projectService.loadProject(projectId);
-      setSelectedProjectId(projectId);
+      setSelectedProject(project);
     } catch (error) {
       console.error('Error loading project:', error);
     }
   };
 
   const handleBackToLibrary = () => {
-    setSelectedProjectId(null);
+    setSelectedProject(null);
   };
 
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
       <Box sx={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
-        {selectedProjectId ? (
+        {selectedProject ? (
           <ScenarioEditor 
-            projectId={selectedProjectId} 
+            projectId={selectedProject.id} 
             onBackToLibrary={handleBackToLibrary} 
           />
         ) : (

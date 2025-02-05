@@ -3,8 +3,9 @@ import { Project, ProjectMetadata } from '../types/project';
 import { Node, Edge } from 'reactflow';
 import { CustomNode, CustomEdge } from '../types/nodes';
 
-const PROJECTS_KEY = 'amen_projects';
-const PROJECT_DATA_PREFIX = 'amen_project_';
+const DB_NAME = 'amen_db';
+const STORE_NAME = 'projects';
+const DB_VERSION = 1;
 
 export class ProjectService {
   private static instance: ProjectService;
@@ -18,42 +19,44 @@ export class ProjectService {
     return ProjectService.instance;
   }
 
-  private getProjectKey(id: string): string {
-    return `${PROJECT_DATA_PREFIX}${id}`;
+  private async getDB(): Promise<IDBDatabase> {
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.open(DB_NAME, DB_VERSION);
+
+      request.onerror = () => reject(request.error);
+      
+      request.onsuccess = () => resolve(request.result);
+      
+      request.onupgradeneeded = (event) => {
+        const db = (event.target as IDBOpenDBRequest).result;
+        if (!db.objectStoreNames.contains(STORE_NAME)) {
+          db.createObjectStore(STORE_NAME, { keyPath: 'id' });
+        }
+      };
+    });
   }
 
   public async listProjects(): Promise<Project[]> {
     try {
-      const projectsJson = localStorage.getItem(PROJECTS_KEY);
-      console.log('Projects JSON:', projectsJson);
-      
-      if (!projectsJson) {
-        console.log('No projects found, returning empty array');
-        return [];
-      }
-      
-      const projects = JSON.parse(projectsJson);
-      console.log('Parsed projects:', projects);
-      
-      // Charger les détails complets de chaque projet
-      const fullProjects = await Promise.all(
-        projects.map(async (metadata: any) => {
-          try {
-            return await this.loadProject(metadata.id);
-          } catch (error) {
-            console.error(`Error loading project ${metadata.id}:`, error);
-            return null;
-          }
-        })
-      );
-      
-      // Filtrer les projets qui n'ont pas pu être chargés
-      const validProjects = fullProjects.filter((p): p is Project => p !== null);
-      console.log('Valid projects:', validProjects);
-      
-      return validProjects;
+      const db = await this.getDB();
+      return new Promise((resolve, reject) => {
+        const transaction = db.transaction(STORE_NAME, 'readonly');
+        const store = transaction.objectStore(STORE_NAME);
+        const request = store.getAll();
+
+        request.onsuccess = () => {
+          const projects = request.result || [];
+          // Trier par date de mise à jour décroissante
+          projects.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+          resolve(projects);
+        };
+
+        request.onerror = () => reject(request.error);
+
+        transaction.oncomplete = () => db.close();
+      });
     } catch (error) {
-      console.error('Error loading projects:', error);
+      console.error('Error listing projects:', error);
       return [];
     }
   }
@@ -70,75 +73,49 @@ export class ProjectService {
       updatedAt: now,
     };
 
-    // Save project data
-    localStorage.setItem(
-      this.getProjectKey(newProject.id),
-      JSON.stringify(newProject)
-    );
-
-    // Save project metadata
-    const projects = await this.listProjects();
-    projects.push({
-      id: newProject.id,
-      name: newProject.name,
-      description: newProject.description,
-      createdAt: newProject.createdAt,
-      updatedAt: newProject.updatedAt,
-    });
-    localStorage.setItem(PROJECTS_KEY, JSON.stringify(projects));
-
+    await this.saveProject(newProject);
     return newProject.id;
   }
 
-  public async loadProject(id: string): Promise<Project> {
+  public async loadProject(projectId: string): Promise<Project | null> {
     try {
-      const projectJson = localStorage.getItem(this.getProjectKey(id));
-      if (!projectJson) {
-        console.error('Project not found:', id);
-        throw new Error('Project not found');
-      }
-      const project = JSON.parse(projectJson);
-      console.log('Project loaded:', project);
-      return project;
+      const db = await this.getDB();
+      return new Promise((resolve, reject) => {
+        const transaction = db.transaction(STORE_NAME, 'readonly');
+        const store = transaction.objectStore(STORE_NAME);
+        const request = store.get(projectId);
+
+        request.onsuccess = () => {
+          resolve(request.result || null);
+        };
+
+        request.onerror = () => reject(request.error);
+
+        transaction.oncomplete = () => db.close();
+      });
     } catch (error) {
       console.error('Error loading project:', error);
-      throw error;
+      return null;
     }
   }
 
   public async saveProject(project: Project): Promise<void> {
     try {
-      project.updatedAt = new Date().toISOString();
+      const db = await this.getDB();
+      return new Promise((resolve, reject) => {
+        const transaction = db.transaction(STORE_NAME, 'readwrite');
+        const store = transaction.objectStore(STORE_NAME);
+        
+        // Mettre à jour la date
+        project.updatedAt = new Date().toISOString();
+        
+        const request = store.put(project);
 
-      // Save project data
-      localStorage.setItem(
-        this.getProjectKey(project.id),
-        JSON.stringify(project)
-      );
+        request.onsuccess = () => resolve();
+        request.onerror = () => reject(request.error);
 
-      // Update project metadata
-      const projects = await this.listProjects();
-      const index = projects.findIndex((p) => p.id === project.id);
-      if (index !== -1) {
-        // Update existing project
-        projects[index] = {
-          id: project.id,
-          name: project.name,
-          description: project.description,
-          createdAt: project.createdAt,
-          updatedAt: project.updatedAt,
-        };
-      } else {
-        // Add new project
-        projects.push({
-          id: project.id,
-          name: project.name,
-          description: project.description,
-          createdAt: project.createdAt,
-          updatedAt: project.updatedAt,
-        });
-      }
-      localStorage.setItem(PROJECTS_KEY, JSON.stringify(projects));
+        transaction.oncomplete = () => db.close();
+      });
     } catch (error) {
       console.error('Error saving project:', error);
       throw error;
@@ -147,13 +124,17 @@ export class ProjectService {
 
   public async deleteProject(id: string): Promise<void> {
     try {
-      // Remove project data
-      localStorage.removeItem(this.getProjectKey(id));
+      const db = await this.getDB();
+      return new Promise((resolve, reject) => {
+        const transaction = db.transaction(STORE_NAME, 'readwrite');
+        const store = transaction.objectStore(STORE_NAME);
+        const request = store.delete(id);
 
-      // Remove project metadata
-      const projects = await this.listProjects();
-      const filteredProjects = projects.filter((p) => p.id !== id);
-      localStorage.setItem(PROJECTS_KEY, JSON.stringify(filteredProjects));
+        request.onsuccess = () => resolve();
+        request.onerror = () => reject(request.error);
+
+        transaction.oncomplete = () => db.close();
+      });
     } catch (error) {
       console.error('Error deleting project:', error);
       throw error;

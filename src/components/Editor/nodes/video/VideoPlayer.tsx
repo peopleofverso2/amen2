@@ -18,7 +18,7 @@ interface VideoPlayerProps {
   showButtons?: boolean;
 }
 
-const VideoPlayer: React.FC<VideoPlayerProps> = ({
+const VideoPlayerComponent: React.FC<VideoPlayerProps> = ({
   url,
   isPlaybackMode,
   playing,
@@ -63,4 +63,4 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   );
 };
 
-export default VideoPlayer;
+export const VideoPlayer = VideoPlayerComponent;

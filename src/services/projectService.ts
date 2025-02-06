@@ -5,7 +5,7 @@ import { CustomNode, CustomEdge } from '../types/nodes';
 
 const DB_NAME = 'amen_db';
 const STORE_NAME = 'projects';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 export class ProjectService {
   private static instance: ProjectService;

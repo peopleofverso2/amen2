@@ -3,7 +3,7 @@ import { Handle, Position } from 'reactflow';
 import { Box, Typography, Stack, IconButton } from '@mui/material';
 import { Add as AddIcon } from '@mui/icons-material';
 
-import VideoPlayer from './video/VideoPlayer';
+import { VideoPlayer } from './video/VideoPlayer';
 import VideoImportDialog from './video/VideoImportDialog';
 import EmptyVideoState from './video/EmptyVideoState';
 import useVideoNode from './video/useVideoNode';

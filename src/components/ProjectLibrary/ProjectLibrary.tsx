@@ -1,32 +1,35 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Box,
-  Grid,
+  Button,
   Card,
   CardContent,
   CardActions,
-  Typography,
-  Button,
-  TextField,
   Dialog,
-  DialogTitle,
-  DialogContent,
   DialogActions,
+  DialogContent,
+  DialogTitle,
   IconButton,
+  TextField,
+  Typography,
   Tooltip,
+  Grid,
 } from '@mui/material';
 import {
-  Add as AddIcon,
-  Edit as EditIcon,
   Delete as DeleteIcon,
+  Edit as EditIcon,
   PlayArrow as PlayArrowIcon,
   Upload as UploadIcon,
   Download as DownloadIcon,
+  CloudDownload as CloudDownloadIcon,
+  GetApp as GetAppIcon,
+  OpenInNew as OpenInNewIcon,
 } from '@mui/icons-material';
 import { ProjectService } from '../../services/projectService';
 import { ExportService } from '../../services/exportService';
 import { Project } from '../../types/project';
 import { FullscreenPlayer } from '../Player/FullscreenPlayer';
+import { DatabaseService } from '../../services/databaseService'; // Import DatabaseService
 
 interface ProjectLibraryProps {
   onProjectSelect: (projectId: string) => void;
@@ -111,51 +114,50 @@ export const ProjectLibrary: React.FC<ProjectLibraryProps> = ({
     }
   };
 
-  const handleExportProject = async (project: Project) => {
+  const handleExport = async (project: Project, includeVideos: boolean = false) => {
     try {
-      setExporting(true);
-      
-      // Charger le projet complet avec ses nœuds
-      const fullProject = await projectService.loadProject(project.id);
-      if (!fullProject) {
-        throw new Error('Project not found');
-      }
-
       const exportService = new ExportService();
-      const blob = await exportService.exportProject(fullProject);
+      const blob = await exportService.exportProject(project, includeVideos);
       
-      // Créer un lien de téléchargement
+      // Créer un nom de fichier avec la date
+      const date = new Date().toISOString().split('T')[0];
+      const filename = `${project.name.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_${date}${includeVideos ? '_full' : ''}.pov`;
+      
+      // Télécharger le fichier
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `${project.name || 'project'}.pov`;
+      a.download = filename;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
     } catch (error) {
       console.error('Error exporting project:', error);
-      setError('Failed to export project');
-    } finally {
-      setExporting(false);
     }
   };
 
   const handleImport = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (!file) return;
+    if (!file) {
+      console.log('No file selected');
+      return;
+    }
 
     try {
+      console.log('Starting import for file:', file.name);
       setImporting(true);
       setError(null);
 
       const exportService = new ExportService();
       const importedProject = await exportService.importProject(file);
+      console.log('Project imported successfully:', importedProject);
 
       // Générer un ID unique en utilisant la Web Crypto API
       const array = new Uint32Array(4);
       window.crypto.getRandomValues(array);
       const id = Array.from(array, dec => ('0' + dec.toString(16)).slice(-2)).join('');
+      console.log('Generated new project ID:', id);
 
       // Créer un nouveau projet avec un nouvel ID
       const newProject: Project = {
@@ -165,9 +167,11 @@ export const ProjectLibrary: React.FC<ProjectLibraryProps> = ({
         updatedAt: new Date().toISOString(),
         name: `${importedProject.name || 'Imported Project'} (imported)`
       };
+      console.log('Created new project:', newProject);
       
       // Sauvegarder le projet importé
       await projectService.saveProject(newProject);
+      console.log('Project saved successfully');
       
       // Rafraîchir la liste des projets
       await loadProjects();
@@ -181,153 +185,119 @@ export const ProjectLibrary: React.FC<ProjectLibraryProps> = ({
       setError('Failed to import project. Please make sure the file is valid.');
     } finally {
       setImporting(false);
-      // Réinitialiser l'input file
-      if (event.target) {
-        event.target.value = '';
-      }
+    }
+  };
+
+  const handleCleanDatabase = async () => {
+    try {
+      await DatabaseService.clearDatabase();
+      window.location.reload();
+    } catch (error) {
+      console.error('Error cleaning database:', error);
     }
   };
 
   return (
     <Box sx={{ p: 3 }}>
-      <Box
-        sx={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          mb: 3,
-        }}
-      >
-        <Typography variant="h4">Bibliothèque de projets</Typography>
-        <Box>
+      <Box sx={{ mb: 3, display: 'flex', gap: 2 }}>
+        <Button
+          variant="contained"
+          component="label"
+          startIcon={<UploadIcon />}
+        >
+          Importer un projet
           <input
             type="file"
-            ref={fileInputRef}
-            style={{ display: 'none' }}
-            accept=".pov"
+            accept=".pov,.json"
+            hidden
             onChange={handleImport}
+            ref={fileInputRef}
           />
-          <Button
-            variant="outlined"
-            startIcon={<UploadIcon />}
-            onClick={() => fileInputRef.current?.click()}
-            sx={{ mr: 1 }}
-          >
-            Importer
-          </Button>
-          <Button
-            variant="contained"
-            startIcon={<AddIcon />}
-            onClick={() => setIsCreateDialogOpen(true)}
-          >
-            Nouveau projet
-          </Button>
-        </Box>
+        </Button>
+        <Button
+          variant="contained"
+          startIcon={<GetAppIcon />}
+          onClick={() => setIsCreateDialogOpen(true)}
+        >
+          Nouveau projet
+        </Button>
       </Box>
 
       <Grid container spacing={3}>
-        {projects.map((project, index) => (
-          <Grid item xs={12} sm={6} md={4} key={index}>
+        {projects.map((project) => (
+          <Grid item xs={12} sm={6} md={4} key={project.id}>
             <Card>
               <CardContent>
-                {editingProject?.id === project.id ? (
-                  <TextField
-                    fullWidth
-                    value={editingProject.name}
-                    onChange={(e) =>
-                      setEditingProject({
-                        ...editingProject,
-                        name: e.target.value,
-                      })
-                    }
-                    onKeyPress={(e) => {
-                      if (e.key === 'Enter') {
-                        handleUpdateProjectName();
-                      }
-                    }}
-                    autoFocus
-                  />
-                ) : (
-                  <Box
-                    sx={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                    }}
-                  >
-                    <Typography variant="h6" component="div">
-                      {project.name}
-                    </Typography>
-                    <Box>
-                      <Tooltip title="Exporter">
-                        <IconButton
-                          size="small"
-                          onClick={() => handleExportProject(project)}
-                        >
-                          <DownloadIcon />
-                        </IconButton>
-                      </Tooltip>
-                      <Tooltip title="Renommer">
-                        <IconButton
-                          size="small"
-                          onClick={() =>
-                            setEditingProject({
-                              id: project.id,
-                              name: project.name,
-                            })
-                          }
-                        >
-                          <EditIcon />
-                        </IconButton>
-                      </Tooltip>
-                      <Tooltip title="Supprimer">
-                        <IconButton
-                          size="small"
-                          onClick={() => handleDeleteProject(project.id)}
-                        >
-                          <DeleteIcon />
-                        </IconButton>
-                      </Tooltip>
-                      <Tooltip title="Lecture">
-                        <IconButton
-                          size="small"
-                          onClick={() => {
-                            setSelectedProject(project);
-                            setIsPlayerOpen(true);
-                          }}
-                        >
-                          <PlayArrowIcon />
-                        </IconButton>
-                      </Tooltip>
-                    </Box>
+                <Box
+                  sx={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                  }}
+                >
+                  <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
+                    {project.name}
+                  </Typography>
+                  
+                  <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                    <Tooltip title="Ouvrir">
+                      <IconButton
+                        size="small"
+                        onClick={() => onProjectSelect(project.id)}
+                        color="primary"
+                      >
+                        <OpenInNewIcon />
+                      </IconButton>
+                    </Tooltip>
+
+                    <Tooltip title="Exporter (sans vidéos)">
+                      <IconButton
+                        size="small"
+                        onClick={() => handleExport(project)}
+                      >
+                        <GetAppIcon />
+                      </IconButton>
+                    </Tooltip>
+
+                    <Tooltip title="Exporter avec vidéos (sauvegarde complète)">
+                      <IconButton
+                        size="small"
+                        onClick={() => handleExport(project, true)}
+                      >
+                        <CloudDownloadIcon />
+                      </IconButton>
+                    </Tooltip>
+
+                    <Tooltip title="Renommer">
+                      <IconButton
+                        size="small"
+                        onClick={() => handleStartRename(project)}
+                      >
+                        <EditIcon />
+                      </IconButton>
+                    </Tooltip>
+
+                    <Tooltip title="Supprimer">
+                      <IconButton
+                        size="small"
+                        onClick={() => handleDelete(project)}
+                      >
+                        <DeleteIcon />
+                      </IconButton>
+                    </Tooltip>
                   </Box>
-                )}
+                </Box>
+                
                 {project.description && (
-                  <Typography
-                    variant="body2"
-                    color="text.secondary"
-                    sx={{ mt: 1 }}
-                  >
+                  <Typography color="text.secondary" sx={{ mt: 1 }}>
                     {project.description}
                   </Typography>
                 )}
-                <Typography
-                  variant="caption"
-                  color="text.secondary"
-                  sx={{ mt: 1, display: 'block' }}
-                >
-                  Modifié le{' '}
-                  {new Date(project.updatedAt).toLocaleDateString('fr-FR')}
+                
+                <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+                  Modifié le {new Date(project.updatedAt).toLocaleDateString('fr-FR')}
                 </Typography>
               </CardContent>
-              <CardActions>
-                <Button
-                  size="small"
-                  onClick={() => onProjectSelect(project.id)}
-                >
-                  Ouvrir
-                </Button>
-              </CardActions>
             </Card>
           </Grid>
         ))}

@@ -1,12 +1,12 @@
 import { MediaStorageAdapter, MediaFile, MediaMetadata, MediaFilter } from '../types/media';
-import { ServerStorageAdapter } from './storage/ServerStorageAdapter';
+import { LocalStorageAdapter } from './storage/LocalStorageAdapter';
 
 export class MediaLibraryService {
   private storageAdapter: MediaStorageAdapter;
 
   constructor(adapter?: MediaStorageAdapter) {
-    // Par défaut, utilise l'adaptateur serveur
-    this.storageAdapter = adapter || new ServerStorageAdapter();
+    // Par défaut, utilise l'adaptateur local
+    this.storageAdapter = adapter || LocalStorageAdapter.getInstance();
   }
 
   // Change l'adaptateur de stockage (utile pour la migration vers le serveur)

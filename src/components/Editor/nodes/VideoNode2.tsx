@@ -2,22 +2,22 @@ import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { Handle, Position } from 'reactflow';
 import {
   Box,
+  Button,
+  IconButton,
+  Typography,
   Dialog,
   DialogTitle,
   DialogContent,
-  IconButton,
-  Typography,
-  Button,
   TextField,
   Paper,
   Fade,
 } from '@mui/material';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import PauseIcon from '@mui/icons-material/Pause';
+import MovieIcon from '@mui/icons-material/Movie';
+import EditIcon from '@mui/icons-material/Edit';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
-import EditIcon from '@mui/icons-material/Edit';
-import MovieIcon from '@mui/icons-material/Movie';
 import MediaLibrary from '../../MediaLibrary/MediaLibrary';
 import { LocalStorageAdapter } from '../../../services/storage/LocalStorageAdapter';
 import { MediaFile } from '../../../types/media';
@@ -25,52 +25,32 @@ import { MediaFile } from '../../../types/media';
 interface VideoNodeProps {
   id: string;
   data: {
-    label: string;
     mediaId?: string;
     onDataChange?: (id: string, data: any) => void;
     isPlaybackMode?: boolean;
-    onVideoEnd?: () => void;
-    buttons?: Array<{
-      id: string;
-      label: string;
-    }>;
-    getConnectedNodeId?: (buttonId: string) => string | null;
+    onVideoEnd?: (id: string) => void;
+    onChoiceSelect?: (id: string, choice: any) => void;
+    isCurrentNode?: boolean;
+    isPlaying?: boolean;
   };
   selected?: boolean;
-  isConnectable?: boolean;
 }
 
-const BUTTON_HANDLE_PREFIX = 'button-handle-';
-
-export default function VideoNode2({
-  id,
-  data,
-  selected,
-  isConnectable = true,
-}: VideoNodeProps) {
-  const [videoUrl, setVideoUrl] = useState<string>();
-  const [isPlaying, setIsPlaying] = useState(false);
+export default function VideoNode2({ id, data, selected }: VideoNodeProps) {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [showButtons, setShowButtons] = useState(false);
-  const [buttons, setButtons] = useState(data.buttons || []);
   const [isEditingButtons, setIsEditingButtons] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
+  const [showButtons, setShowButtons] = useState(false);
+  const [videoUrl, setVideoUrl] = useState<string>();
   const videoRef = useRef<HTMLVideoElement>(null);
   const storageAdapter = useRef(LocalStorageAdapter.getInstance());
-
-  useEffect(() => {
-    setButtons(data.buttons || []);
-  }, [data.buttons]);
-
-  const generateButtonId = () => `button-${Math.random().toString(36).substr(2, 9)}`;
 
   const loadVideo = useCallback(async () => {
     if (!data.mediaId) return;
 
     try {
-      console.log('Loading video with mediaId:', data.mediaId);
       const mediaFile = await storageAdapter.current.getMedia(data.mediaId);
-      console.log('Loaded media file:', mediaFile);
       if (mediaFile && mediaFile.url) {
         setVideoUrl(mediaFile.url);
       }
@@ -83,98 +63,85 @@ export default function VideoNode2({
     loadVideo();
   }, [loadVideo]);
 
-  useEffect(() => {
-    if (!videoRef.current || !videoUrl) return;
+  const handleVideoEnd = useCallback(() => {
+    if (data.onVideoEnd) {
+      data.onVideoEnd(id);
+    }
+  }, [data.onVideoEnd, id]);
 
-    if (data.isPlaybackMode) {
-      videoRef.current.play()
-        .then(() => {
-          setIsPlaying(true);
-          setShowButtons(false);
-        })
-        .catch(error => console.error('Error playing video:', error));
-    } else {
-      videoRef.current.pause();
-      videoRef.current.currentTime = 0;
-      setIsPlaying(false);
-      setShowButtons(false);
+  const handleChoiceClick = useCallback((choice: any) => {
+    if (data.onChoiceSelect) {
+      data.onChoiceSelect(id, choice);
     }
-  }, [data.isPlaybackMode, videoUrl]);
-
-  const handleVideoEnded = useCallback(() => {
-    setIsPlaying(false);
-    if (videoRef.current) {
-      setShowButtons(true);
-    }
-    if (!buttons.length && data.onVideoEnd) {
-      data.onVideoEnd();
-    }
-  }, [data.onVideoEnd, buttons]);
+  }, [data.onChoiceSelect, id]);
 
   const handlePlayPause = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!videoRef.current || data.isPlaybackMode) return;
-
-    if (isPlaying) {
-      videoRef.current.pause();
-    } else {
-      videoRef.current.play()
-        .then(() => {
-          setShowButtons(false);
-        })
-        .catch(error => console.error('Error playing video:', error));
-    }
-    setIsPlaying(!isPlaying);
-  }, [isPlaying, data.isPlaybackMode]);
-
-  const handleButtonClick = useCallback((buttonId: string) => {
-    if (data.getConnectedNodeId) {
-      const targetNodeId = data.getConnectedNodeId(buttonId);
-      if (targetNodeId) {
-        setShowButtons(false);
-        setIsPlaying(false);
-        if (data.onDataChange) {
-          data.onDataChange(id, { nextNodeId: targetNodeId });
-        }
+    if (videoRef.current) {
+      if (isPlaying) {
+        videoRef.current.pause();
+      } else {
+        videoRef.current.play();
       }
+      setIsPlaying(!isPlaying);
     }
-  }, [id, data]);
-
-  const handleAddButton = useCallback(() => {
-    if (data.onDataChange) {
-      const newButton = { 
-        id: generateButtonId(),
-        label: 'New Button'
-      };
-      const newButtons = [...buttons, newButton];
-      setButtons(newButtons);
-      data.onDataChange(id, { buttons: newButtons });
-    }
-  }, [id, buttons, data.onDataChange]);
-
-  const handleEditButton = useCallback((index: number, changes: Partial<{ label: string }>) => {
-    if (data.onDataChange) {
-      const newButtons = buttons.map((btn, i) => 
-        i === index ? { ...btn, ...changes } : btn
-      );
-      setButtons(newButtons);
-      data.onDataChange(id, { buttons: newButtons });
-    }
-  }, [id, buttons, data.onDataChange]);
+  }, [isPlaying]);
 
   const handleMediaSelect = useCallback((mediaFiles: MediaFile[]) => {
     if (!mediaFiles.length || !data.onDataChange) return;
 
     const mediaFile = mediaFiles[0];
-    console.log('Selected media file:', mediaFile);
-
     data.onDataChange(id, {
-      mediaId: mediaFile.id,
-      label: mediaFile.metadata?.name || 'Video'
+      mediaId: mediaFile.id
     });
-
     setIsDialogOpen(false);
   }, [id, data.onDataChange]);
+
+  const handleAddChoice = useCallback(() => {
+    if (data.onDataChange) {
+      const newChoice = {
+        id: `choice-${Math.random().toString(36).substr(2, 9)}`,
+        text: 'New Choice'
+      };
+      
+      data.onDataChange(id, {
+        choices: [...(data.choices || []), newChoice]
+      });
+    }
+  }, [id, data.onDataChange, data.choices]);
+
+  const handleEditChoice = useCallback((choice: { id: string; text: string }) => {
+    if (data.onDataChange && data.choices) {
+      const updatedChoices = data.choices.map(c => 
+        c.id === choice.id ? { ...c, text: choice.text } : c
+      );
+      
+      data.onDataChange(id, {
+        choices: updatedChoices
+      });
+    }
+  }, [id, data.onDataChange, data.choices]);
+
+  const handleDeleteChoice = useCallback((choiceId: string) => {
+    if (data.onDataChange && data.choices) {
+      const updatedChoices = data.choices.filter(c => c.id !== choiceId);
+      
+      data.onDataChange(id, {
+        choices: updatedChoices
+      });
+    }
+  }, [id, data.onDataChange, data.choices]);
+
+  useEffect(() => {
+    if (data.isPlaying && videoRef.current) {
+      videoRef.current.currentTime = 0;
+      videoRef.current.play().catch(console.error);
+      setIsPlaying(true);
+    } else if (videoRef.current) {
+      videoRef.current.pause();
+      setIsPlaying(false);
+    }
+  }, [data.isPlaying]);
 
   return (
     <div 
@@ -182,6 +149,12 @@ export default function VideoNode2({
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
     >
+      <Handle
+        type="target"
+        position={Position.Top}
+        style={{ background: '#555' }}
+      />
+      
       <Paper
         elevation={selected ? 8 : isHovered ? 4 : 1}
         sx={{
@@ -235,108 +208,84 @@ export default function VideoNode2({
                   display: 'block',
                   borderRadius: '8px 8px 0 0',
                 }}
-                onEnded={handleVideoEnded}
+                onEnded={handleVideoEnd}
+                controls={!data.isPlaybackMode}
                 playsInline
               />
-              <Fade in={!data.isPlaybackMode || isHovered}>
-                <Box
-                  sx={{
-                    position: 'absolute',
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    bgcolor: 'rgba(0,0,0,0.4)',
-                    transition: 'opacity 0.2s',
-                    borderRadius: '8px 8px 0 0',
-                  }}
-                >
-                  <IconButton
-                    onClick={handlePlayPause}
+              {!data.isPlaybackMode && (
+                <Fade in={isHovered}>
+                  <Box
                     sx={{
-                      color: 'white',
-                      bgcolor: 'rgba(255,255,255,0.1)',
-                      '&:hover': {
-                        bgcolor: 'rgba(255,255,255,0.2)',
-                      },
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      bgcolor: 'rgba(0,0,0,0.4)',
+                      transition: 'opacity 0.2s',
+                      borderRadius: '8px 8px 0 0',
                     }}
                   >
-                    {isPlaying ? <PauseIcon /> : <PlayArrowIcon />}
-                  </IconButton>
-                </Box>
-              </Fade>
-              {(showButtons && data.isPlaybackMode) && (
-                <Box
-                  sx={{
-                    position: 'absolute',
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: 1.5,
-                    bgcolor: 'rgba(0,0,0,0.7)',
-                    p: 2,
-                    borderRadius: '8px 8px 0 0',
-                  }}
-                >
-                  {buttons.map((button) => (
-                    <Button
-                      key={button.id}
-                      variant="contained"
-                      fullWidth
-                      onClick={() => handleButtonClick(button.id)}
-                      sx={{ 
-                        py: 1,
-                        textTransform: 'none',
-                        fontSize: '1rem',
-                        fontWeight: 500,
-                        bgcolor: 'primary.main',
+                    <IconButton
+                      onClick={handlePlayPause}
+                      sx={{
                         color: 'white',
+                        bgcolor: 'rgba(255,255,255,0.1)',
                         '&:hover': {
-                          bgcolor: 'primary.dark',
+                          bgcolor: 'rgba(255,255,255,0.2)',
                         },
-                        borderRadius: 2,
                       }}
                     >
-                      {button.label}
-                    </Button>
-                  ))}
-                </Box>
+                      {isPlaying ? <PauseIcon /> : <PlayArrowIcon />}
+                    </IconButton>
+                  </Box>
+                </Fade>
               )}
             </Box>
-            {!data.isPlaybackMode && (
-              <Box sx={{ p: 2 }}>
+
+            <Box sx={{ p: 2 }}>
+              {!data.isPlaybackMode && (
                 <Button
                   variant="outlined"
                   fullWidth
                   startIcon={<EditIcon />}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setIsEditingButtons(true);
-                  }}
-                  sx={{
-                    py: 1,
-                    textTransform: 'none',
-                    borderColor: 'primary.main',
-                    color: 'primary.main',
-                    '&:hover': {
-                      borderColor: 'primary.dark',
-                      bgcolor: 'primary.50',
-                    },
-                    borderRadius: 2,
-                  }}
+                  onClick={() => setIsEditingButtons(true)}
+                  sx={{ mb: 2 }}
                 >
                   Edit Choices
                 </Button>
-              </Box>
-            )}
+              )}
+
+              {data.choices?.map((choice, index) => (
+                <React.Fragment key={choice.id}>
+                  <Button
+                    variant={data.isPlaybackMode ? "contained" : "outlined"}
+                    color="primary"
+                    fullWidth
+                    onClick={() => data.isPlaybackMode ? handleChoiceClick(choice) : null}
+                    sx={{ mb: 1 }}
+                    disabled={data.isPlaybackMode && !data.isCurrentNode}
+                  >
+                    {choice.text}
+                  </Button>
+                  <Handle
+                    type="source"
+                    position={Position.Bottom}
+                    id={`button-handle-${choice.id}`}
+                    style={{
+                      left: `${((index + 1) * 100) / (data.choices.length + 1)}%`,
+                      bottom: -5,
+                      background: '#555',
+                      width: 10,
+                      height: 10,
+                    }}
+                  />
+                </React.Fragment>
+              ))}
+            </Box>
           </Box>
         )}
       </Paper>
@@ -347,15 +296,10 @@ export default function VideoNode2({
         onClose={() => setIsDialogOpen(false)}
         maxWidth="md"
         fullWidth
-        PaperProps={{
-          sx: {
-            borderRadius: 2,
-          }
-        }}
       >
         <DialogTitle>Select Video</DialogTitle>
         <DialogContent>
-          <MediaLibrary
+          <MediaLibrary 
             onSelect={handleMediaSelect}
             multiSelect={false}
             acceptedTypes={['video/*']}
@@ -363,118 +307,43 @@ export default function VideoNode2({
         </DialogContent>
       </Dialog>
 
-      {/* Button Editor Dialog */}
+      {/* Edit Choices Dialog */}
       <Dialog
         open={isEditingButtons}
         onClose={() => setIsEditingButtons(false)}
         maxWidth="sm"
         fullWidth
-        PaperProps={{
-          sx: {
-            borderRadius: 2,
-          }
-        }}
       >
-        <DialogTitle>Edit Choice Buttons</DialogTitle>
+        <DialogTitle>Edit Choices</DialogTitle>
         <DialogContent>
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, my: 2 }}>
-            {buttons.map((button, index) => (
-              <Paper
-                key={button.id}
-                elevation={1}
-                sx={{ 
-                  p: 2,
-                  display: 'flex',
-                  gap: 1,
-                  alignItems: 'center',
-                  borderRadius: 2,
-                }}
-              >
+          <Box sx={{ p: 2 }}>
+            {data.choices?.map((choice) => (
+              <Box key={choice.id} sx={{ mb: 2, display: 'flex', gap: 1 }}>
                 <TextField
-                  value={button.label}
-                  onChange={(e) => handleEditButton(index, { label: e.target.value })}
-                  placeholder="Button Label"
-                  size="small"
                   fullWidth
-                  variant="outlined"
-                  sx={{ 
-                    '& .MuiOutlinedInput-root': {
-                      borderRadius: 1.5,
-                    }
-                  }}
+                  value={choice.text}
+                  onChange={(e) => handleEditChoice({ id: choice.id, text: e.target.value })}
                 />
-                <IconButton 
-                  size="small"
-                  onClick={() => {
-                    const newButtons = buttons.filter((_, i) => i !== index);
-                    setButtons(newButtons);
-                    data.onDataChange?.(id, { buttons: newButtons });
-                  }}
-                  sx={{ 
-                    color: 'error.main',
-                    '&:hover': {
-                      bgcolor: 'error.50',
-                    }
-                  }}
+                <IconButton
+                  color="error"
+                  onClick={() => handleDeleteChoice(choice.id)}
                 >
                   <DeleteIcon />
                 </IconButton>
-              </Paper>
+              </Box>
             ))}
-            <Button 
-              variant="outlined" 
-              onClick={handleAddButton}
+            <Button
+              variant="outlined"
               startIcon={<AddIcon />}
-              sx={{
-                mt: 1,
-                py: 1,
-                textTransform: 'none',
-                borderColor: 'primary.main',
-                color: 'primary.main',
-                '&:hover': {
-                  borderColor: 'primary.dark',
-                  bgcolor: 'primary.50',
-                },
-                borderRadius: 2,
-              }}
+              onClick={handleAddChoice}
+              sx={{ mt: 2 }}
+              fullWidth
             >
-              Add Choice Button
+              Add Choice
             </Button>
           </Box>
         </DialogContent>
       </Dialog>
-
-      {/* Node Handles */}
-      <Handle
-        type="target"
-        position={Position.Top}
-        style={{
-          background: '#555',
-          width: 10,
-          height: 10,
-          top: -5,
-          zIndex: 1000,
-        }}
-        isConnectable={isConnectable}
-      />
-
-      {!data.isPlaybackMode && (data.buttons || []).map((button, index) => (
-        <Handle
-          key={button.id}
-          type="source"
-          position={Position.Bottom}
-          id={`${BUTTON_HANDLE_PREFIX}${button.id}`}
-          style={{
-            left: `${((index + 1) * 100) / ((data.buttons || []).length + 1)}%`,
-            background: '#FF6B6B',
-            width: 10,
-            height: 10,
-            bottom: -5,
-            zIndex: 1000,
-          }}
-          isConnectable={isConnectable}
-        />
-      ))}
     </div>
   );
 }

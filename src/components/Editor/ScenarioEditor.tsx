@@ -23,6 +23,7 @@ import { ProjectService } from '../../services/projectService';
 import { Project } from '../../types/project';
 import Sidebar from './controls/Sidebar';
 import 'reactflow/dist/style.css';
+import debounce from 'lodash.debounce';
 
 const nodeTypes: NodeTypes = {
   videoNode2: VideoNode2,
@@ -42,8 +43,8 @@ interface ScenarioEditorProps {
 }
 
 function ScenarioEditorContent({ projectId, onBackToLibrary }: ScenarioEditorProps) {
-  const [nodes, setNodes, onNodesChange] = useState<Node[]>([]);
-  const [edges, setEdges, onEdgesChange] = useState<Edge[]>([]);
+  const [nodes, setNodes] = useState<Node[]>([]);
+  const [edges, setEdges] = useState<Edge[]>([]);
   const [activeNodeId, setActiveNodeId] = useState<string | null>(null);
   const [isPlaybackMode, setIsPlaybackMode] = useState(false);
   const [project, setProject] = useState<Project | null>(null);
@@ -52,13 +53,47 @@ function ScenarioEditorContent({ projectId, onBackToLibrary }: ScenarioEditorPro
   const { screenToFlowPosition } = useReactFlow();
   const projectService = ProjectService.getInstance();
 
-  const onNodesChangeCallback = useCallback((changes: NodeChange[]) => {
-    setNodes((nds) => applyNodeChanges(changes, nds));
-  }, []);
+  // Gérer la fin d'une vidéo
+  const onVideoEnd = useCallback((nodeId: string) => {
+    if (!isPlaybackMode) return;
 
-  const onEdgesChangeCallback = useCallback((changes: EdgeChange[]) => {
-    setEdges((eds) => applyEdgeChanges(changes, eds));
-  }, []);
+    const outgoingEdges = edges.filter(edge => edge.source === nodeId);
+    if (outgoingEdges.length === 1) {
+      // S'il n'y a qu'un seul lien sortant, passer automatiquement au nœud suivant
+      const nextNodeId = outgoingEdges[0].target;
+      setActiveNodeId(nextNodeId);
+      setNodes(nds => nds.map(node => ({
+        ...node,
+        data: {
+          ...node.data,
+          isCurrentNode: node.id === nextNodeId,
+          isPlaying: node.id === nextNodeId
+        }
+      })));
+    }
+  }, [isPlaybackMode, edges, setNodes]);
+
+  // Gérer le choix d'un bouton
+  const handleChoiceSelect = useCallback((nodeId: string, choice: any) => {
+    if (!isPlaybackMode) return;
+
+    const outgoingEdges = edges.filter(edge => 
+      edge.source === nodeId && edge.sourceHandle === `button-handle-${choice.id}`
+    );
+
+    if (outgoingEdges.length === 1) {
+      const nextNodeId = outgoingEdges[0].target;
+      setActiveNodeId(nextNodeId);
+      setNodes(nds => nds.map(node => ({
+        ...node,
+        data: {
+          ...node.data,
+          isCurrentNode: node.id === nextNodeId,
+          isPlaying: node.id === nextNodeId
+        }
+      })));
+    }
+  }, [isPlaybackMode, edges, setNodes]);
 
   const getConnectedNodeId = useCallback((nodeId: string, buttonId: string) => {
     const edge = edges.find(e => 
@@ -84,47 +119,107 @@ function ScenarioEditorContent({ projectId, onBackToLibrary }: ScenarioEditorPro
             data: {
               ...node.data,
               ...newData,
-              // Ajouter la fonction pour obtenir le nœud connecté
-              getConnectedNodeId: (buttonId: string) => 
-                getConnectedNodeId(nodeId, buttonId),
+              onDataChange: handleNodeDataChange,
+              onVideoEnd,
+              onChoiceSelect: handleChoiceSelect,
+              getConnectedNodeId: (buttonId: string) => getConnectedNodeId(nodeId, buttonId),
             },
           };
         }
         return node;
       })
     );
-  }, [setNodes, isPlaybackMode, getConnectedNodeId]);
+  }, [isPlaybackMode, getConnectedNodeId, onVideoEnd, handleChoiceSelect]);
 
-  const onConnect = useCallback(
-    (params: Connection) => {
-      // Créer un lien de choix si c'est depuis un bouton
-      if (params.sourceHandle?.startsWith('button-handle-')) {
-        const edge: Edge = {
-          ...params,
-          id: `choice-${params.source}-${params.target}-${params.sourceHandle}`,
-          type: 'choice-link',
-          style: { strokeWidth: 3 },
-        };
-        setEdges((eds) => [...eds, edge]);
-      } else {
-        // Lien normal
-        setEdges((eds) => addEdge(params, eds));
-      }
-    },
-    [setEdges]
-  );
+  const onNodesChange = useCallback((changes: NodeChange[]) => {
+    setNodes((nds) => applyNodeChanges(changes, nds));
+  }, []);
 
-  const onVideoEnd = useCallback((nodeId: string) => {
-    if (isPlaybackMode) {
-      const outgoingEdges = edges.filter(edge => edge.source === nodeId);
-      if (outgoingEdges.length > 0) {
-        setActiveNodeId(outgoingEdges[0].target);
-      } else {
-        setIsPlaybackMode(false);
-        setActiveNodeId(null);
-      }
+  const onEdgesChange = useCallback((changes: EdgeChange[]) => {
+    setEdges((eds) => applyEdgeChanges(changes, eds));
+  }, []);
+
+  const onConnect = useCallback((connection: Connection) => {
+    if (!connection.source || !connection.target) return;
+
+    const sourceNode = nodes.find(n => n.id === connection.source);
+    const sourceHandle = connection.sourceHandle;
+    let choiceId = null;
+
+    if (sourceHandle && sourceHandle.startsWith('button-handle-')) {
+      choiceId = sourceHandle.replace('button-handle-', '');
     }
-  }, [isPlaybackMode, edges]);
+
+    // Créer un lien de choix avec le texte du bouton
+    const edge: Edge = {
+      ...connection,
+      id: `choice-${connection.source}-${connection.target}-${choiceId}`,
+      type: 'choice',
+      data: {
+        choiceId,
+        text: sourceNode?.data.choices?.find((c: any) => c.id === choiceId)?.text || ''
+      },
+      style: { strokeWidth: 2 }
+    };
+
+    // Mettre à jour les choix du nœud source
+    setNodes(nds => nds.map(node => {
+      if (node.id === connection.source) {
+        const updatedChoices = (node.data.choices || []).map((choice: any) => {
+          if (choice.id === choiceId) {
+            return {
+              ...choice,
+              nextStepId: connection.target
+            };
+          }
+          return choice;
+        });
+        
+        return {
+          ...node,
+          data: {
+            ...node.data,
+            choices: updatedChoices
+          }
+        };
+      }
+      return node;
+    }));
+
+    setEdges(eds => [...eds, edge]);
+  }, [nodes]);
+
+  const onEdgesDelete = useCallback((edgesToDelete: Edge[]) => {
+    // Mettre à jour les choix des nœuds source quand un lien est supprimé
+    edgesToDelete.forEach(edge => {
+      if (edge.data?.choiceId) {
+        setNodes(nds => nds.map(node => {
+          if (node.id === edge.source) {
+            const updatedChoices = (node.data.choices || []).map((choice: any) => {
+              if (choice.id === edge.data.choiceId) {
+                return {
+                  ...choice,
+                  nextStepId: undefined
+                };
+              }
+              return choice;
+            });
+            
+            return {
+              ...node,
+              data: {
+                ...node.data,
+                choices: updatedChoices
+              }
+            };
+          }
+          return node;
+        }));
+      }
+    });
+
+    setEdges(eds => eds.filter(e => !edgesToDelete.includes(e)));
+  }, []);
 
   const handleSave = useCallback(async () => {
     if (!projectId || !project) return;
@@ -132,20 +227,33 @@ function ScenarioEditorContent({ projectId, onBackToLibrary }: ScenarioEditorPro
     setIsSaving(true);
     try {
       console.log('Saving project:', projectId);
+      
+      // Créer une copie propre des nœuds sans les callbacks
+      const cleanNodes = nodes.map(node => ({
+        ...node,
+        data: {
+          ...node.data,
+          onDataChange: undefined,
+          onVideoEnd: undefined,
+          onChoiceSelect: undefined,
+          getConnectedNodeId: undefined,
+          isPlaybackMode: undefined,
+          isCurrentNode: undefined,
+          isPlaying: undefined
+        }
+      }));
+
+      // Mettre à jour le projet avec les derniers changements
       const updatedProject = {
         ...project,
-        nodes: nodes.map(node => ({
-          ...node,
-          data: {
-            ...node.data,
-            onDataChange: undefined,
-            onVideoEnd: undefined
-          }
-        })),
+        nodes: cleanNodes,
         edges,
         updatedAt: new Date().toISOString()
       };
+
+      console.log('Saving updated project:', updatedProject);
       await projectService.saveProject(updatedProject);
+      setProject(updatedProject);
       console.log('Project saved successfully');
     } catch (error) {
       console.error('Error saving project:', error);
@@ -154,6 +262,7 @@ function ScenarioEditorContent({ projectId, onBackToLibrary }: ScenarioEditorPro
     }
   }, [projectId, project, nodes, edges, projectService]);
 
+  // Démarrer la lecture
   const startPlayback = useCallback(() => {
     setIsPlaybackMode(true);
     // Trouver le premier nœud (sans connexions entrantes)
@@ -164,6 +273,7 @@ function ScenarioEditorContent({ projectId, onBackToLibrary }: ScenarioEditorPro
     }
   }, [nodes, edges]);
 
+  // Arrêter la lecture
   const stopPlayback = useCallback(() => {
     setIsPlaybackMode(false);
     setActiveNodeId(null);
@@ -206,36 +316,34 @@ function ScenarioEditorContent({ projectId, onBackToLibrary }: ScenarioEditorPro
     [screenToFlowPosition, handleNodeDataChange, getConnectedNodeId]
   );
 
-  // Load project data
+  // Charger le projet au démarrage
   useEffect(() => {
+    let isSubscribed = true;
+
     const loadProject = async () => {
       if (!projectId) return;
       
       try {
         console.log('Loading project:', projectId);
         const loadedProject = await projectService.loadProject(projectId);
-        console.log('Loaded project:', loadedProject);
-        
-        if (loadedProject) {
+        if (loadedProject && isSubscribed) {
+          console.log('Project loaded:', loadedProject);
           setProject(loadedProject);
           
-          // Charger les nœuds avec les callbacks de base
-          if (loadedProject.nodes) {
-            const nodesWithCallbacks = loadedProject.nodes.map(node => ({
-              ...node,
-              data: {
-                ...node.data,
-                onDataChange: handleNodeDataChange,
-                onVideoEnd: () => onVideoEnd(node.id),
-                isPlaybackMode: false,
-              }
-            }));
-            setNodes(nodesWithCallbacks);
-          }
+          // Mise à jour des nœuds avec les callbacks
+          const nodesWithCallbacks = loadedProject.nodes.map(node => ({
+            ...node,
+            data: {
+              ...node.data,
+              onDataChange: handleNodeDataChange,
+              onVideoEnd,
+              onChoiceSelect: handleChoiceSelect,
+              getConnectedNodeId: (buttonId: string) => getConnectedNodeId(node.id, buttonId),
+            },
+          }));
           
-          if (loadedProject.edges) {
-            setEdges(loadedProject.edges);
-          }
+          setNodes(nodesWithCallbacks);
+          setEdges(loadedProject.edges);
         }
       } catch (error) {
         console.error('Error loading project:', error);
@@ -243,28 +351,38 @@ function ScenarioEditorContent({ projectId, onBackToLibrary }: ScenarioEditorPro
     };
 
     loadProject();
-  }, [projectId]);  // Ne dépend que de projectId
+    return () => {
+      isSubscribed = false;
+    };
+  }, [projectId]); // Ne dépend que de projectId
 
+  // Sauvegarder lors des changements de nœuds ou d'arêtes
+  useEffect(() => {
+    if (!project) return;
+    
+    const saveTimeout = setTimeout(() => {
+      handleSave();
+    }, 2000);
+
+    return () => clearTimeout(saveTimeout);
+  }, [nodes, edges, handleSave, project]);
+
+  // Mettre à jour les nœuds avec les callbacks quand le mode lecture change
   useEffect(() => {
     setNodes(nodes => nodes.map(node => ({
       ...node,
       data: {
         ...node.data,
         onDataChange: handleNodeDataChange,
+        onVideoEnd,
+        onChoiceSelect: handleChoiceSelect,
         getConnectedNodeId: (buttonId: string) => getConnectedNodeId(node.id, buttonId),
+        isPlaybackMode,
+        isCurrentNode: node.id === activeNodeId,
+        isPlaying: isPlaybackMode && node.id === activeNodeId
       }
     })));
-  }, [handleNodeDataChange, getConnectedNodeId]);
-
-  useEffect(() => {
-    setNodes(nodes => nodes.map(node => ({
-      ...node,
-      data: {
-        ...node.data,
-        isPlaybackMode: isPlaybackMode && node.id === activeNodeId,
-      }
-    })));
-  }, [isPlaybackMode, activeNodeId]);
+  }, [isPlaybackMode, activeNodeId, handleNodeDataChange, onVideoEnd, getConnectedNodeId, handleChoiceSelect]);
 
   return (
     <Box sx={{ width: '100%', height: '100%', position: 'relative' }}>
@@ -272,9 +390,10 @@ function ScenarioEditorContent({ projectId, onBackToLibrary }: ScenarioEditorPro
         <ReactFlow
           nodes={nodes}
           edges={edges}
-          onNodesChange={onNodesChangeCallback}
-          onEdgesChange={onEdgesChangeCallback}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
           onConnect={onConnect}
+          onEdgesDelete={onEdgesDelete}
           onDrop={onDrop}
           onDragOver={onDragOver}
           nodeTypes={nodeTypes}

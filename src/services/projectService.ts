@@ -2,7 +2,7 @@ import { Project, ProjectMetadata } from '../types/project';
 
 const DB_NAME = 'amen_db';
 const STORE_NAME = 'projects';
-const DB_VERSION = 3;
+const DB_VERSION = 4; // Incrémenter la version pour forcer la mise à jour
 
 export class ProjectService {
   private db: IDBDatabase | null = null;
@@ -22,24 +22,43 @@ export class ProjectService {
     if (this.initialized) return;
     
     try {
-      await this.resetDatabase();
-      await this.getDB();
+      console.log('Initializing ProjectService...');
+      const db = await this.getDB();
+      
+      // Vérifier que le store existe
+      if (!db.objectStoreNames.contains(STORE_NAME)) {
+        console.error('Store not found after initialization');
+        // Forcer une réinitialisation si le store n'existe pas
+        await this.resetDatabase();
+        await this.getDB();
+      }
+      
       this.initialized = true;
+      console.log('ProjectService initialized successfully');
     } catch (error) {
       console.error('Failed to initialize ProjectService:', error);
       throw error;
     }
   }
 
+  // On garde la méthode resetDatabase mais on ne l'appelle plus automatiquement
   private async resetDatabase(): Promise<void> {
+    console.log('Resetting database...');
     return new Promise((resolve, reject) => {
+      if (this.db) {
+        this.db.close();
+        this.db = null;
+      }
+      
       const req = indexedDB.deleteDatabase(DB_NAME);
       req.onsuccess = () => {
         console.log('Database deleted successfully');
+        this.db = null;
+        this.initialized = false;
         resolve();
       };
       req.onerror = () => {
-        console.error('Could not delete database');
+        console.error('Could not delete database:', req.error);
         reject(req.error);
       };
     });
@@ -51,7 +70,7 @@ export class ProjectService {
     }
 
     return new Promise((resolve, reject) => {
-      console.log('Opening database...');
+      console.log('Opening database...', DB_NAME, 'version:', DB_VERSION);
       const request = indexedDB.open(DB_NAME, DB_VERSION);
 
       request.onerror = () => {
@@ -66,14 +85,21 @@ export class ProjectService {
       };
       
       request.onupgradeneeded = (event) => {
-        console.log('Database upgrade needed');
+        console.log('Database upgrade needed from version:', event.oldVersion, 'to:', event.newVersion);
         const db = (event.target as IDBOpenDBRequest).result;
-        if (!db.objectStoreNames.contains(STORE_NAME)) {
-          console.log('Creating object store:', STORE_NAME);
-          const store = db.createObjectStore(STORE_NAME, { keyPath: 'projectId' });
-          store.createIndex('updatedAt', 'updatedAt', { unique: false });
-          console.log('Object store created');
+        
+        // Supprimer l'ancien store s'il existe
+        if (db.objectStoreNames.contains(STORE_NAME)) {
+          console.log('Deleting existing store:', STORE_NAME);
+          db.deleteObjectStore(STORE_NAME);
         }
+        
+        // Créer le nouveau store avec les index
+        console.log('Creating object store:', STORE_NAME);
+        const store = db.createObjectStore(STORE_NAME, { keyPath: 'projectId' });
+        store.createIndex('updatedAt', 'updatedAt', { unique: false });
+        store.createIndex('scenarioTitle', 'scenario.scenarioTitle', { unique: false });
+        console.log('Object store created with indexes');
       };
     });
   }
@@ -183,19 +209,28 @@ export class ProjectService {
       return new Promise((resolve, reject) => {
         const transaction = db.transaction(STORE_NAME, 'readwrite');
         const store = transaction.objectStore(STORE_NAME);
-        const request = store.put(project);
+
+        // Ajouter les timestamps
+        const now = new Date().toISOString();
+        const projectToSave = {
+          ...project,
+          updatedAt: now,
+          createdAt: project.createdAt || now
+        };
+
+        const request = store.put(projectToSave);
 
         request.onsuccess = () => {
-          console.log('Project saved successfully');
+          console.log('Project saved successfully with ID:', request.result);
           resolve();
         };
         request.onerror = () => {
-          console.error('Error in request:', request.error);
+          console.error('Error saving project:', request.error);
           reject(request.error);
         };
 
         transaction.oncomplete = () => {
-          console.log('Transaction completed');
+          console.log('Transaction completed successfully');
         };
 
         transaction.onerror = () => {
@@ -238,6 +273,66 @@ export class ProjectService {
     } catch (error) {
       console.error('Error listing projects:', error);
       return [];
+    }
+  }
+
+  async exportAllProjects(): Promise<Project[]> {
+    await this.initialize();
+    
+    try {
+      console.log('Exporting all projects');
+      const db = await this.getDB();
+      return new Promise((resolve, reject) => {
+        const transaction = db.transaction(STORE_NAME, 'readonly');
+        const store = transaction.objectStore(STORE_NAME);
+        const request = store.getAll();
+
+        request.onsuccess = () => {
+          const projects = request.result || [];
+          console.log('Exported projects:', projects.length);
+          resolve(projects);
+        };
+
+        request.onerror = () => reject(request.error);
+      });
+    } catch (error) {
+      console.error('Error exporting projects:', error);
+      throw error;
+    }
+  }
+
+  async importProjects(projects: Project[]): Promise<void> {
+    await this.initialize();
+    
+    try {
+      console.log('Importing projects:', projects.length);
+      const db = await this.getDB();
+      
+      return new Promise((resolve, reject) => {
+        const transaction = db.transaction(STORE_NAME, 'readwrite');
+        const store = transaction.objectStore(STORE_NAME);
+
+        // Importer chaque projet
+        projects.forEach(project => {
+          const request = store.put(project);
+          request.onerror = () => {
+            console.error('Error importing project:', project.projectId, request.error);
+          };
+        });
+
+        transaction.oncomplete = () => {
+          console.log('All projects imported successfully');
+          resolve();
+        };
+
+        transaction.onerror = () => {
+          console.error('Transaction error:', transaction.error);
+          reject(transaction.error);
+        };
+      });
+    } catch (error) {
+      console.error('Error importing projects:', error);
+      throw error;
     }
   }
 }

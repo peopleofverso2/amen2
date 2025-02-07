@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import {
   Dialog,
   DialogTitle,
@@ -12,6 +12,7 @@ import {
 } from '@mui/material';
 import { MediaFile } from '../../../../../types/media';
 import MediaLibrary from '../../../../MediaLibrary/MediaLibrary';
+import { LocalStorageAdapter } from '../../../../../services/storage/LocalStorageAdapter';
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -30,11 +31,12 @@ const TabPanel: React.FC<TabPanelProps> = React.memo(({ children, value, index, 
 interface MediaImportDialogProps {
   open: boolean;
   onClose: () => void;
-  onSave: (url: string, label?: string) => void;
+  onSave: (mediaId: string, label?: string) => void;
   title?: string;
   urlLabel?: string;
   urlHelperText?: string;
   defaultLabel?: string;
+  acceptedTypes?: string[];
 }
 
 const MediaImportDialog: React.FC<MediaImportDialogProps> = React.memo(({
@@ -44,92 +46,149 @@ const MediaImportDialog: React.FC<MediaImportDialogProps> = React.memo(({
   title = 'Sélectionner un média',
   urlLabel = 'URL du média',
   urlHelperText = 'Collez l\'URL du média',
-  defaultLabel = 'Media'
+  defaultLabel = 'Media',
+  acceptedTypes = []
 }) => {
   const [tabValue, setTabValue] = useState(0);
   const [mediaUrl, setMediaUrl] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const storageAdapter = useMemo(() => new LocalStorageAdapter(), []);
 
   // Reset state when dialog opens
   useEffect(() => {
     if (open) {
       setMediaUrl('');
       setTabValue(0);
+      setError(null);
     }
   }, [open]);
 
   const handleTabChange = useCallback((event: React.SyntheticEvent, newValue: number) => {
     setTabValue(newValue);
+    setError(null);
   }, []);
 
   const handleMediaSelect = useCallback((selectedMedia: MediaFile[]) => {
     if (selectedMedia.length > 0) {
       const mediaFile = selectedMedia[0];
-      onSave(mediaFile.url, mediaFile.metadata.name);
+      
+      // Vérifier si le type de fichier est accepté
+      if (acceptedTypes.length > 0) {
+        const mediaType = mediaFile.metadata.mimeType.split('/')[0];
+        const isAccepted = acceptedTypes.some(type => {
+          const [baseType] = type.split('/');
+          return type === '*' || type === mediaFile.metadata.mimeType || (type.endsWith('/*') && baseType === mediaType);
+        });
+        
+        if (!isAccepted) {
+          setError(`Ce type de fichier n'est pas accepté. Types acceptés : ${acceptedTypes.join(', ')}`);
+          return;
+        }
+      }
+      
+      onSave(mediaFile.id, mediaFile.metadata.name);
       onClose();
     }
-  }, [onSave, onClose]);
+  }, [onSave, onClose, acceptedTypes]);
 
-  const handleUrlSave = useCallback(() => {
-    if (!mediaUrl.trim()) return;
+  const handleUrlSave = useCallback(async () => {
+    if (!mediaUrl.trim()) {
+      setError('Veuillez entrer une URL valide');
+      return;
+    }
     
-    // Si pas de label, utiliser la dernière partie de l'URL
-    const urlParts = mediaUrl.split('/');
-    const label = urlParts[urlParts.length - 1] || defaultLabel;
-    onSave(mediaUrl.trim(), label);
-    onClose();
-  }, [mediaUrl, onSave, onClose, defaultLabel]);
+    setError(null);
+    
+    try {
+      // Créer un blob à partir de l'URL
+      const response = await fetch(mediaUrl);
+      if (!response.ok) {
+        throw new Error(`Erreur lors du chargement de l'URL: ${response.statusText}`);
+      }
+      
+      const contentType = response.headers.get('content-type') || 'application/octet-stream';
+      const blob = await response.blob();
+      
+      // Vérifier si le type de fichier est accepté
+      if (acceptedTypes.length > 0) {
+        const mediaType = contentType.split('/')[0];
+        const isAccepted = acceptedTypes.some(type => {
+          const [baseType] = type.split('/');
+          return type === '*' || type === contentType || (type.endsWith('/*') && baseType === mediaType);
+        });
+        
+        if (!isAccepted) {
+          setError(`Ce type de fichier n'est pas accepté. Types acceptés : ${acceptedTypes.join(', ')}`);
+          return;
+        }
+      }
+      
+      // Extraire le nom du fichier de l'URL ou utiliser un nom par défaut
+      const urlParts = mediaUrl.split('/');
+      const fileName = urlParts[urlParts.length - 1].split('?')[0] || 'media';
+      const file = new File([blob], fileName, { type: contentType });
+      
+      // Sauvegarder le média dans LocalStorageAdapter
+      const mediaFile = await storageAdapter.saveMedia(file, {
+        name: fileName,
+      });
+      
+      onSave(mediaFile.id, mediaFile.metadata.name || defaultLabel);
+      onClose();
+    } catch (error) {
+      console.error('Error saving media from URL:', error);
+      setError(error instanceof Error ? error.message : 'Erreur lors du chargement du média');
+    }
+  }, [mediaUrl, onSave, onClose, defaultLabel, storageAdapter, acceptedTypes]);
 
   const handleUrlChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     setMediaUrl(e.target.value);
+    setError(null);
   }, []);
 
   return (
     <Dialog 
       open={open} 
-      onClose={onClose} 
-      maxWidth="lg" 
+      onClose={onClose}
+      maxWidth="md"
       fullWidth
-      PaperProps={{
-        sx: { height: tabValue === 1 ? '80vh' : 'auto' }
-      }}
     >
       <DialogTitle>{title}</DialogTitle>
       <DialogContent>
         <Tabs value={tabValue} onChange={handleTabChange}>
+          <Tab label="BIBLIOTHÈQUE" />
           <Tab label="URL" />
-          <Tab label="Bibliothèque" />
         </Tabs>
-
+        
         <TabPanel value={tabValue} index={0}>
-          <TextField
-            autoFocus
-            margin="dense"
-            label={urlLabel}
-            type="url"
-            fullWidth
-            variant="outlined"
-            value={mediaUrl}
-            onChange={handleUrlChange}
-            helperText={urlHelperText}
+          <MediaLibrary
+            onSelect={handleMediaSelect}
+            acceptedTypes={acceptedTypes}
           />
-          <DialogActions>
-            <Button onClick={onClose}>Annuler</Button>
-            <Button 
-              onClick={handleUrlSave} 
-              variant="contained"
-              disabled={!mediaUrl.trim()}
-            >
-              Sélectionner
-            </Button>
-          </DialogActions>
         </TabPanel>
-
+        
         <TabPanel value={tabValue} index={1}>
-          <Box sx={{ height: '60vh' }}>
-            <MediaLibrary onSelect={handleMediaSelect} multiSelect={false} />
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <TextField
+              fullWidth
+              label={urlLabel}
+              value={mediaUrl}
+              onChange={handleUrlChange}
+              helperText={error || urlHelperText}
+              error={!!error}
+            />
           </Box>
         </TabPanel>
       </DialogContent>
+      
+      <DialogActions>
+        <Button onClick={onClose}>Annuler</Button>
+        {tabValue === 1 && (
+          <Button onClick={handleUrlSave} disabled={!mediaUrl.trim() || !!error}>
+            Valider
+          </Button>
+        )}
+      </DialogActions>
     </Dialog>
   );
 });

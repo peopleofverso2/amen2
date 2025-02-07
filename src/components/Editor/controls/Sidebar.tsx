@@ -12,12 +12,14 @@ interface SidebarProps {
   onSave: () => void;
   isPlayMode?: boolean;
   onPlayModeToggle?: () => void;
+  onPlay?: () => void;
 }
 
 const Sidebar: React.FC<SidebarProps> = ({
   onSave,
   isPlayMode,
   onPlayModeToggle,
+  onPlay,
 }) => {
   const onDragStart = (event: React.DragEvent, nodeType: string) => {
     event.dataTransfer.setData('application/reactflow', nodeType);
@@ -41,6 +43,18 @@ const Sidebar: React.FC<SidebarProps> = ({
         <IconButton onClick={onSave} color="primary" size="small">
           <SaveIcon />
         </IconButton>
+
+        {onPlay && (
+          <Button
+            variant="contained"
+            color="primary"
+            startIcon={<PlayIcon />}
+            onClick={onPlay}
+            sx={{ height: '30px' }}
+          >
+            Play
+          </Button>
+        )}
 
         <IconButton 
           onClick={onPlayModeToggle} 

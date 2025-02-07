@@ -3,89 +3,145 @@ import { LocalStorageAdapter } from './storage/LocalStorageAdapter';
 
 export class MediaLibraryService {
   private storageAdapter: MediaStorageAdapter;
+  private urlCache: Map<string, string> = new Map();
 
   constructor(adapter?: MediaStorageAdapter) {
-    // Par défaut, utilise l'adaptateur local
     this.storageAdapter = adapter || LocalStorageAdapter.getInstance();
   }
 
-  // Change l'adaptateur de stockage (utile pour la migration vers le serveur)
   setStorageAdapter(adapter: MediaStorageAdapter) {
     this.storageAdapter = adapter;
   }
 
   async uploadMedia(file: File, metadata: Partial<MediaMetadata> = {}): Promise<MediaFile> {
-    // Validation du fichier
     if (!file.type.startsWith('video/') && !file.type.startsWith('image/')) {
       throw new Error('Type de fichier non supporté');
     }
 
-    // Extraction automatique des métadonnées
     const autoMetadata: Partial<MediaMetadata> = {
       ...metadata,
       type: file.type.startsWith('video/') ? 'video' : 'image',
     };
 
-    // Pour les vidéos, extraire la durée
     if (file.type.startsWith('video/')) {
       const duration = await this.getVideoDuration(file);
       autoMetadata.duration = duration;
     }
 
-    // Pour les images et les vidéos, extraire les dimensions
     const dimensions = await this.getMediaDimensions(file);
     if (dimensions) {
       autoMetadata.dimensions = dimensions;
     }
 
-    return this.storageAdapter.saveMedia(file, autoMetadata);
+    const mediaFile = await this.storageAdapter.saveMedia(file, autoMetadata);
+    
+    // Mettre en cache l'URL
+    if (mediaFile.url) {
+      this.urlCache.set(mediaFile.id, mediaFile.url);
+    }
+
+    return mediaFile;
   }
 
   private getVideoDuration(file: File): Promise<number> {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       const video = document.createElement('video');
       video.preload = 'metadata';
+      
+      const url = URL.createObjectURL(file);
+      
       video.onloadedmetadata = () => {
-        URL.revokeObjectURL(video.src);
+        URL.revokeObjectURL(url);
         resolve(video.duration);
       };
-      video.src = URL.createObjectURL(file);
+      
+      video.onerror = () => {
+        URL.revokeObjectURL(url);
+        reject(new Error('Failed to load video metadata'));
+      };
+      
+      video.src = url;
     });
   }
 
   private getMediaDimensions(file: File): Promise<{ width: number; height: number } | undefined> {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       if (file.type.startsWith('image/')) {
         const img = new Image();
+        const url = URL.createObjectURL(file);
+        
         img.onload = () => {
-          URL.revokeObjectURL(img.src);
+          URL.revokeObjectURL(url);
           resolve({ width: img.width, height: img.height });
         };
-        img.src = URL.createObjectURL(file);
+        
+        img.onerror = () => {
+          URL.revokeObjectURL(url);
+          reject(new Error('Failed to load image'));
+        };
+        
+        img.src = url;
       } else if (file.type.startsWith('video/')) {
         const video = document.createElement('video');
         video.preload = 'metadata';
+        const url = URL.createObjectURL(file);
+        
         video.onloadedmetadata = () => {
-          URL.revokeObjectURL(video.src);
+          URL.revokeObjectURL(url);
           resolve({ width: video.videoWidth, height: video.videoHeight });
         };
-        video.src = URL.createObjectURL(file);
+        
+        video.onerror = () => {
+          URL.revokeObjectURL(url);
+          reject(new Error('Failed to load video metadata'));
+        };
+        
+        video.src = url;
       } else {
         resolve(undefined);
       }
     });
   }
 
-  // Méthodes de l'interface MediaStorageAdapter déléguées à l'adaptateur
   async getMedia(id: string): Promise<MediaFile> {
-    return this.storageAdapter.getMedia(id);
+    // Vérifier si l'URL est en cache
+    const cachedUrl = this.urlCache.get(id);
+    if (cachedUrl) {
+      const media = await this.storageAdapter.getMedia(id);
+      return { ...media, url: cachedUrl };
+    }
+
+    const media = await this.storageAdapter.getMedia(id);
+    
+    // Mettre en cache la nouvelle URL
+    if (media.url) {
+      this.urlCache.set(id, media.url);
+    }
+    
+    return media;
   }
 
   async listMedia(filter?: MediaFilter): Promise<MediaFile[]> {
-    return this.storageAdapter.listMedia(filter);
+    const mediaFiles = await this.storageAdapter.listMedia(filter);
+    
+    // Mettre à jour le cache des URLs
+    mediaFiles.forEach(media => {
+      if (media.url) {
+        this.urlCache.set(media.id, media.url);
+      }
+    });
+    
+    return mediaFiles;
   }
 
   async deleteMedia(id: string): Promise<void> {
+    // Révoquer l'URL du cache
+    const cachedUrl = this.urlCache.get(id);
+    if (cachedUrl) {
+      URL.revokeObjectURL(cachedUrl);
+      this.urlCache.delete(id);
+    }
+    
     return this.storageAdapter.deleteMedia(id);
   }
 

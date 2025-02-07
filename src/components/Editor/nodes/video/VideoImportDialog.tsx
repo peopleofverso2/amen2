@@ -4,7 +4,7 @@ import MediaImportDialog from '../shared/import/MediaImportDialog';
 interface VideoImportDialogProps {
   open: boolean;
   onClose: () => void;
-  onSave: (url: string, label?: string) => void;
+  onSave: (mediaId: string, label?: string) => void;
 }
 
 const VideoImportDialog: React.FC<VideoImportDialogProps> = React.memo(({
@@ -20,7 +20,8 @@ const VideoImportDialog: React.FC<VideoImportDialogProps> = React.memo(({
       title="Sélectionner une vidéo"
       urlLabel="URL de la vidéo"
       urlHelperText="Collez l'URL YouTube ou une autre URL vidéo valide"
-      defaultLabel="Vidéo YouTube"
+      defaultLabel="Vidéo"
+      acceptedTypes={['video/*']}
     />
   );
 });

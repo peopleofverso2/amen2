@@ -24,11 +24,13 @@ const mediaLibrary = new MediaLibraryService();
 interface MediaLibraryProps {
   onSelect?: (mediaFiles: MediaFile[]) => void;
   multiSelect?: boolean;
+  acceptedTypes?: string[];
 }
 
 export default function MediaLibrary({ 
   onSelect,
-  multiSelect = true 
+  multiSelect = true,
+  acceptedTypes = []
 }: MediaLibraryProps) {
   const [media, setMedia] = useState<MediaFile[]>([]);
   const [filter, setFilter] = useState<MediaFilter>({});
@@ -49,32 +51,42 @@ export default function MediaLibrary({
 
   useEffect(() => {
     loadMedia();
-    loadTags();
-  }, [filter]);
+  }, [filter, search, selectedTags]);
 
   const loadMedia = async () => {
     try {
       const mediaFiles = await mediaLibrary.listMedia({
         ...filter,
         search,
-        tags: selectedTags.length > 0 ? selectedTags : undefined,
+        tags: selectedTags,
       });
-      setMedia(mediaFiles);
-    } catch (error) {
-      console.error('Erreur lors du chargement des médias:', error);
-      showError('Erreur lors du chargement des médias');
-    }
-  };
 
-  const loadTags = async () => {
-    try {
-      const allMedia = await mediaLibrary.listMedia();
+      // Filtrer les médias par type si nécessaire
+      const filteredMedia = acceptedTypes.length > 0
+        ? mediaFiles.filter(file => {
+            const mediaType = file.metadata.mimeType.split('/')[0];
+            return acceptedTypes.some(type => {
+              const [baseType] = type.split('/');
+              return type === '*' || type === file.metadata.mimeType || (type.endsWith('/*') && baseType === mediaType);
+            });
+          })
+        : mediaFiles;
+
+      setMedia(filteredMedia);
+      
+      // Mettre à jour les tags disponibles
       const tags = new Set<string>();
-      allMedia.forEach(m => m.metadata.tags.forEach(tag => tags.add(tag)));
+      filteredMedia.forEach(file => {
+        file.metadata.tags?.forEach(tag => tags.add(tag));
+      });
       setAvailableTags(Array.from(tags));
     } catch (error) {
-      console.error('Erreur lors du chargement des tags:', error);
-      showError('Erreur lors du chargement des tags');
+      console.error('Error loading media:', error);
+      setSnackbar({
+        open: true,
+        message: 'Erreur lors du chargement des médias',
+        severity: 'error'
+      });
     }
   };
 
@@ -147,100 +159,141 @@ export default function MediaLibrary({
   };
 
   return (
-    <Box sx={{ p: 3 }}>
-      {/* Barre d'outils */}
-      <Paper sx={{ p: 2, mb: 2, bgcolor: 'background.paper' }}>
-        <Grid container spacing={2} alignItems="center">
-          <Grid item xs={12} md={4}>
-            <TextField
-              fullWidth
-              placeholder="Rechercher..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              InputProps={{
-                startAdornment: <SearchIcon sx={{ color: 'action.active', mr: 1 }} />,
-              }}
-            />
-          </Grid>
-          <Grid item xs={12} md={6}>
-            <Autocomplete
-              multiple
-              options={availableTags}
-              value={selectedTags}
-              onChange={(_, newValue) => setSelectedTags(newValue)}
-              renderInput={(params) => (
-                <TextField {...params} placeholder="Filtrer par tags" />
-              )}
-            />
-          </Grid>
-          <Grid item xs={12} md={2}>
-            <Button
-              fullWidth
-              variant="contained"
-              startIcon={<CloudUploadIcon />}
-              onClick={() => setUploadOpen(true)}
-            >
-              Upload
-            </Button>
-          </Grid>
-        </Grid>
-      </Paper>
-
-      {/* Grille de médias */}
-      <Grid container spacing={2}>
-        {media.map((mediaFile) => (
-          <Grid item xs={12} sm={6} md={4} lg={3} key={mediaFile.metadata.id}>
-            <MediaCard
-              mediaFile={mediaFile}
-              onSelect={handleSelect}
-              onDelete={handleDelete}
-              selected={selectedMedia.has(mediaFile.metadata.id)}
-            />
-          </Grid>
-        ))}
-      </Grid>
-
-      {/* Bouton de validation de la sélection */}
-      {onSelect && selectedMedia.size > 0 && (
-        <Box
-          sx={{
-            position: 'fixed',
-            bottom: 20,
-            left: '50%',
-            transform: 'translateX(-50%)',
-            zIndex: 1000,
+    <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+      <Box sx={{ p: 2, display: 'flex', gap: 2, alignItems: 'center' }}>
+        <TextField
+          size="small"
+          placeholder="Rechercher..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          InputProps={{
+            startAdornment: <SearchIcon sx={{ mr: 1, color: 'text.secondary' }} />,
           }}
+          sx={{ flexGrow: 1 }}
+        />
+        
+        <Autocomplete
+          multiple
+          size="small"
+          options={availableTags}
+          value={selectedTags}
+          onChange={(_, newValue) => setSelectedTags(newValue)}
+          renderInput={(params) => (
+            <TextField
+              {...params}
+              placeholder="Tags"
+              sx={{ minWidth: 200 }}
+            />
+          )}
+          sx={{ flexGrow: 1 }}
+        />
+        
+        <Button
+          variant="contained"
+          startIcon={<CloudUploadIcon />}
+          onClick={() => setUploadOpen(true)}
         >
+          Upload
+        </Button>
+        
+        {selectedMedia.size > 0 && onSelect && (
           <Button
             variant="contained"
             color="primary"
             startIcon={<CheckIcon />}
-            onClick={handleConfirmSelection}
+            onClick={() => {
+              const selectedFiles = media.filter(m => selectedMedia.has(m.metadata.id));
+              onSelect(selectedFiles);
+            }}
           >
-            Valider la sélection ({selectedMedia.size})
+            Valider ({selectedMedia.size})
           </Button>
-        </Box>
-      )}
+        )}
+      </Box>
 
-      {/* Dialog d'upload */}
+      <Box sx={{ flexGrow: 1, overflow: 'auto', p: 2 }}>
+        <Grid container spacing={2}>
+          {media.map((mediaFile) => (
+            <Grid item xs={12} sm={6} md={4} lg={3} key={mediaFile.metadata.id}>
+              <MediaCard
+                mediaFile={mediaFile}
+                selected={selectedMedia.has(mediaFile.metadata.id)}
+                onSelect={() => {
+                  if (!onSelect) return;
+                  
+                  const newSelection = new Set(selectedMedia);
+                  if (multiSelect) {
+                    if (newSelection.has(mediaFile.metadata.id)) {
+                      newSelection.delete(mediaFile.metadata.id);
+                    } else {
+                      newSelection.add(mediaFile.metadata.id);
+                    }
+                  } else {
+                    newSelection.clear();
+                    newSelection.add(mediaFile.metadata.id);
+                  }
+                  setSelectedMedia(newSelection);
+                }}
+                onDelete={async () => {
+                  try {
+                    await mediaLibrary.deleteMedia(mediaFile.metadata.id);
+                    loadMedia();
+                    setSnackbar({
+                      open: true,
+                      message: 'Média supprimé avec succès',
+                      severity: 'success'
+                    });
+                  } catch (error) {
+                    console.error('Error deleting media:', error);
+                    setSnackbar({
+                      open: true,
+                      message: 'Erreur lors de la suppression du média',
+                      severity: 'error'
+                    });
+                  }
+                }}
+              />
+            </Grid>
+          ))}
+        </Grid>
+      </Box>
+
       <UploadDialog
         open={uploadOpen}
         onClose={() => setUploadOpen(false)}
-        onUpload={handleUpload}
-        availableTags={availableTags}
+        onUpload={async (files) => {
+          try {
+            const uploadPromises = files.map(async (file) => {
+              const mediaFile = await mediaLibrary.uploadMedia(file);
+              return mediaFile;
+            });
+            
+            await Promise.all(uploadPromises);
+            loadMedia();
+            setUploadOpen(false);
+            setSnackbar({
+              open: true,
+              message: 'Upload réussi',
+              severity: 'success'
+            });
+          } catch (error) {
+            console.error('Error uploading files:', error);
+            setSnackbar({
+              open: true,
+              message: error instanceof Error ? error.message : 'Erreur lors de l\'upload',
+              severity: 'error'
+            });
+          }
+        }}
+        acceptedTypes={acceptedTypes}
       />
 
-      {/* Snackbar pour les notifications */}
       <Snackbar
         open={snackbar.open}
         autoHideDuration={6000}
         onClose={() => setSnackbar(prev => ({ ...prev, open: false }))}
       >
-        <Alert 
-          onClose={() => setSnackbar(prev => ({ ...prev, open: false }))} 
-          severity={snackbar.severity}
-          sx={{ width: '100%' }}
-        >
+        <Alert severity={snackbar.severity} onClose={() => setSnackbar(prev => ({ ...prev, open: false }))}>
           {snackbar.message}
         </Alert>
       </Snackbar>

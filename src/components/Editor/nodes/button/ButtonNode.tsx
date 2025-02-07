@@ -1,128 +1,118 @@
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
+import { Box, Button, TextField, IconButton } from '@mui/material';
 import { Handle, Position } from 'reactflow';
-import { Box, Button, Icon } from '@mui/material';
-import ButtonStyleDialog from './ButtonStyleDialog';
-
-interface ButtonNodeData {
-  text: string;
-  style: {
-    backgroundColor: string;
-    textColor: string;
-    borderRadius: string;
-    fontSize: string;
-    borderStyle: 'none' | 'solid' | 'dashed' | 'dotted';
-    borderColor: string;
-    borderWidth: string;
-    boxShadow: string;
-    padding: string;
-    textAlign: 'left' | 'center' | 'right';
-    transition: string;
-    hoverBackgroundColor: string;
-    hoverTextColor: string;
-    hoverScale: string;
-  };
-  variant: 'contained' | 'outlined' | 'text';
-  size: 'small' | 'medium' | 'large';
-  icon?: {
-    name: string;
-    position: 'start' | 'end';
-  };
-  targetNodeId?: string;
-  onDataChange?: (data: Partial<ButtonNodeData>) => void;
-  onNavigate?: (targetNodeId: string) => void;
-  isPlaybackMode?: boolean;
-}
+import { Edit as EditIcon } from '@mui/icons-material';
 
 interface ButtonNodeProps {
-  data: ButtonNodeData;
-  isConnectable: boolean;
+  id: string;
+  data: {
+    label: string;
+    text: string;
+    isPlaybackMode?: boolean;
+    targetNodeId?: string;
+  };
+  onDataChange?: (id: string, data: any) => void;
+  isConnectable?: boolean;
+  selected?: boolean;
 }
 
-const defaultStyle = {
-  backgroundColor: '#2196f3',
-  textColor: '#ffffff',
-  borderRadius: '4px',
-  fontSize: '14px',
-  borderStyle: 'none' as const,
-  borderColor: '#000000',
-  borderWidth: '1px',
-  boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
-  padding: '8px 16px',
-  textAlign: 'center' as const,
-  transition: 'all 0.3s ease',
-  hoverBackgroundColor: '#1976d2',
-  hoverTextColor: '#ffffff',
-  hoverScale: '1.05'
-};
+export default function ButtonNode({ 
+  id, 
+  data, 
+  onDataChange,
+  isConnectable = true,
+  selected,
+}: ButtonNodeProps) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [text, setText] = useState(data.text || 'Click me');
 
-const ButtonNode: React.FC<ButtonNodeProps> = ({ data, isConnectable }) => {
-  const [isOpen, setIsOpen] = useState(false);
+  const handleTextChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    setText(event.target.value);
+  }, []);
 
-  const handleSave = (newData: ButtonNodeData) => {
-    if (data.onDataChange) {
-      data.onDataChange(newData);
+  const handleTextSubmit = useCallback(() => {
+    if (onDataChange) {
+      onDataChange(id, {
+        ...data,
+        text,
+      });
     }
-    setIsOpen(false);
-  };
+    setIsEditing(false);
+  }, [id, data, text, onDataChange]);
 
-  const handleNavigate = () => {
-    if (data.isPlaybackMode && data.targetNodeId && data.onNavigate) {
-      data.onNavigate(data.targetNodeId);
+  const handleKeyPress = useCallback((event: React.KeyboardEvent) => {
+    if (event.key === 'Enter') {
+      handleTextSubmit();
     }
-  };
+  }, [handleTextSubmit]);
+
+  const handleClick = useCallback(() => {
+    if (data.targetNodeId && onDataChange) {
+      onDataChange(id, {
+        ...data,
+        clicked: true,
+      });
+    }
+  }, [data, id, onDataChange]);
 
   return (
     <Box
       sx={{
-        bgcolor: '#2a2a2a',
+        padding: 1,
+        bgcolor: 'background.paper',
         borderRadius: 1,
-        p: 2,
-        minWidth: 200,
+        border: selected ? '2px solid #1976d2' : '1px solid #ccc',
+        minWidth: 120,
       }}
     >
-      <Handle type="target" position={Position.Left} isConnectable={isConnectable} />
-      
-      <Box sx={{ p: 1 }}>
-        <Button
-          variant={data.variant || 'contained'}
-          size={data.size || 'medium'}
-          onClick={() => data.isPlaybackMode ? handleNavigate() : setIsOpen(true)}
-          startIcon={data.icon?.position === 'start' && <Icon>{data.icon.name}</Icon>}
-          endIcon={data.icon?.position === 'end' && <Icon>{data.icon.name}</Icon>}
-          sx={{
-            backgroundColor: data.style?.backgroundColor || defaultStyle.backgroundColor,
-            color: data.style?.textColor || defaultStyle.textColor,
-            borderRadius: data.style?.borderRadius || defaultStyle.borderRadius,
-            fontSize: data.style?.fontSize || defaultStyle.fontSize,
-            borderStyle: data.style?.borderStyle || defaultStyle.borderStyle,
-            borderColor: data.style?.borderColor || defaultStyle.borderColor,
-            borderWidth: data.style?.borderWidth || defaultStyle.borderWidth,
-            boxShadow: data.style?.boxShadow || defaultStyle.boxShadow,
-            padding: data.style?.padding || defaultStyle.padding,
-            textAlign: data.style?.textAlign || defaultStyle.textAlign,
-            transition: data.style?.transition || defaultStyle.transition,
-            minWidth: '120px',
-            '&:hover': {
-              backgroundColor: data.style?.hoverBackgroundColor || defaultStyle.hoverBackgroundColor,
-              color: data.style?.hoverTextColor || defaultStyle.hoverTextColor,
-              transform: `scale(${data.style?.hoverScale || defaultStyle.hoverScale})`,
-            },
-          }}
-        >
-          {data.text || 'Nouveau bouton'}
-        </Button>
-      </Box>
+      <Handle
+        type="target"
+        position={Position.Top}
+        isConnectable={isConnectable}
+      />
 
-      <Handle type="source" position={Position.Right} isConnectable={isConnectable} />
+      {isEditing && !data.isPlaybackMode ? (
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <TextField
+            size="small"
+            value={text}
+            onChange={handleTextChange}
+            onKeyPress={handleKeyPress}
+            onBlur={handleTextSubmit}
+            autoFocus
+            fullWidth
+          />
+        </Box>
+      ) : (
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Button
+            variant="contained"
+            size="small"
+            onClick={() => !data.isPlaybackMode ? setIsEditing(true) : handleClick()}
+            sx={{ 
+              flexGrow: 1,
+              pointerEvents: data.isPlaybackMode ? 'auto' : 'none',
+            }}
+          >
+            {text}
+          </Button>
+          {!data.isPlaybackMode && (
+            <IconButton
+              size="small"
+              onClick={() => setIsEditing(true)}
+              sx={{ padding: 0.5 }}
+            >
+              <EditIcon fontSize="small" />
+            </IconButton>
+          )}
+        </Box>
+      )}
 
-      <ButtonStyleDialog
-        open={isOpen}
-        onClose={() => setIsOpen(false)}
-        data={data}
-        onSave={handleSave}
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        isConnectable={isConnectable}
       />
     </Box>
   );
-};
-
-export default ButtonNode;
+}

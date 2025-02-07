@@ -280,7 +280,7 @@ export const ProjectLibrary: React.FC<ProjectLibraryProps> = ({
                     <Tooltip title="Supprimer">
                       <IconButton
                         size="small"
-                        onClick={() => handleDelete(project)}
+                        onClick={() => handleDeleteProject(project.id)}
                       >
                         <DeleteIcon />
                       </IconButton>

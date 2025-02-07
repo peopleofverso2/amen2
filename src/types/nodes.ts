@@ -32,14 +32,8 @@ export interface TextNodeData extends BaseNodeData {
 }
 
 export interface VideoNodeData extends BaseNodeData {
-  id: string;
-  videoUrl: string;
-  buttons?: Array<{
-    id: string;
-    label: string;
-    buttonText: string;
-    targetNodeId?: string;
-  }>;
+  mediaId?: string;
+  videoUrl?: string | null; // Pour la rétrocompatibilité
   isPlaybackMode?: boolean;
 }
 

@@ -1,217 +1,347 @@
 import { MediaStorageAdapter, MediaFile, MediaMetadata, MediaFilter } from '../../types/media';
+import { openDB, IDBPDatabase, deleteDB } from 'idb';
 
 export class LocalStorageAdapter implements MediaStorageAdapter {
   private readonly STORAGE_KEY = 'media_library';
-  private readonly FILE_STORAGE_KEY = 'media_files';
   private static instance: LocalStorageAdapter;
+  private dbPromise: Promise<IDBPDatabase> | null = null;
+  private static readonly DB_NAME = 'AmenMediaLibrary';
+  private static readonly DB_VERSION = 4; 
+  private static readonly MEDIA_STORE = 'media';
+  private static readonly METADATA_STORE = 'metadata';
+  private static readonly THUMBNAIL_STORE = 'thumbnails';
 
-  private constructor() {}
+  private urlCache: Map<string, string> = new Map();
+  private thumbnailUrlCache: Map<string, string> = new Map();
 
-  public static getInstance(): LocalStorageAdapter {
-    if (!LocalStorageAdapter.instance) {
-      LocalStorageAdapter.instance = new LocalStorageAdapter();
+  private constructor() {
+    if (LocalStorageAdapter.instance) {
+      return LocalStorageAdapter.instance;
     }
-    return LocalStorageAdapter.instance;
+    LocalStorageAdapter.instance = this;
   }
 
-  private async getStoredMetadata(): Promise<Record<string, MediaMetadata>> {
-    const stored = localStorage.getItem(this.STORAGE_KEY);
-    return stored ? JSON.parse(stored) : {};
+  private async resetDatabase() {
+    try {
+      this.clearUrlCaches();
+
+      if (this.dbPromise) {
+        const db = await this.dbPromise;
+        db.close();
+        this.dbPromise = null;
+      }
+
+      await deleteDB(LocalStorageAdapter.DB_NAME);
+      
+      return this.getDb();
+    } catch (error) {
+      console.error('Error resetting database:', error);
+      throw error;
+    }
   }
 
-  private async saveStoredMetadata(metadata: Record<string, MediaMetadata>): Promise<void> {
-    localStorage.setItem(this.STORAGE_KEY, JSON.stringify(metadata));
+  private clearUrlCaches() {
+    this.urlCache.forEach((url) => URL.revokeObjectURL(url));
+    this.thumbnailUrlCache.forEach((url) => URL.revokeObjectURL(url));
+    
+    this.urlCache.clear();
+    this.thumbnailUrlCache.clear();
+  }
+
+  private async getDb(): Promise<IDBPDatabase> {
+    if (!this.dbPromise) {
+      console.log('Opening database...');
+      this.dbPromise = openDB(LocalStorageAdapter.DB_NAME, LocalStorageAdapter.DB_VERSION, {
+        upgrade(db, oldVersion, newVersion, transaction) {
+          console.log(`Upgrading database from version ${oldVersion} to ${newVersion}`);
+          
+          if (oldVersion < newVersion) {
+            const storeNames = [...db.objectStoreNames];
+            storeNames.forEach(storeName => {
+              db.deleteObjectStore(storeName);
+            });
+          }
+
+          if (!db.objectStoreNames.contains(LocalStorageAdapter.MEDIA_STORE)) {
+            console.log('Creating media store');
+            db.createObjectStore(LocalStorageAdapter.MEDIA_STORE);
+          }
+          if (!db.objectStoreNames.contains(LocalStorageAdapter.METADATA_STORE)) {
+            console.log('Creating metadata store');
+            db.createObjectStore(LocalStorageAdapter.METADATA_STORE);
+          }
+          if (!db.objectStoreNames.contains(LocalStorageAdapter.THUMBNAIL_STORE)) {
+            console.log('Creating thumbnail store');
+            db.createObjectStore(LocalStorageAdapter.THUMBNAIL_STORE);
+          }
+        },
+        blocked() {
+          console.warn('Database upgrade blocked. Please close other tabs using the app.');
+        },
+        blocking() {
+          console.warn('Database blocking other connections. Closing...');
+        },
+        terminated() {
+          console.error('Database connection terminated unexpectedly.');
+        }
+      });
+    }
+    return this.dbPromise;
   }
 
   private generateId(): string {
     return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
   }
 
+  private async generateThumbnail(file: File): Promise<Blob | null> {
+    if (file.type.startsWith('video/')) {
+      const video = document.createElement('video');
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      
+      return new Promise((resolve) => {
+        video.onloadedmetadata = () => {
+          canvas.width = 320;
+          canvas.height = (video.videoHeight / video.videoWidth) * canvas.width;
+          video.currentTime = 1;
+        };
+        
+        video.onseeked = () => {
+          if (ctx) {
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            canvas.toBlob((blob) => {
+              URL.revokeObjectURL(video.src);
+              resolve(blob);
+            }, 'image/jpeg', 0.7);
+          } else {
+            URL.revokeObjectURL(video.src);
+            resolve(null);
+          }
+        };
+        
+        video.onerror = () => {
+          URL.revokeObjectURL(video.src);
+          resolve(null);
+        };
+        
+        video.src = URL.createObjectURL(file);
+      });
+    }
+    return null;
+  }
+
   async saveMedia(file: File, partialMetadata: Partial<MediaMetadata>): Promise<MediaFile> {
-    // Utiliser l'ID fourni ou en générer un nouveau
-    const id = partialMetadata.id || this.generateId();
-
-    // Créer les métadonnées complètes
-    const metadata: MediaMetadata = {
-      id,
-      name: file.name,
-      type: 'unknown',
-      mimeType: file.type,
-      size: file.size,
-      tags: [],
-      ...partialMetadata
-    };
-
-    // Sauvegarder le fichier dans IndexedDB
-    await new Promise<void>((resolve, reject) => {
-      const request = indexedDB.open('MediaLibrary', 1);
+    try {
+      const id = partialMetadata.id || this.generateId();
       
-      request.onerror = () => reject(new Error(`Failed to open database: ${request.error}`));
+      if (this.urlCache.has(id)) {
+        URL.revokeObjectURL(this.urlCache.get(id)!);
+        this.urlCache.delete(id);
+      }
+      if (this.thumbnailUrlCache.has(id)) {
+        URL.revokeObjectURL(this.thumbnailUrlCache.get(id)!);
+        this.thumbnailUrlCache.delete(id);
+      }
 
-      request.onupgradeneeded = (event) => {
-        const db = (event.target as IDBOpenDBRequest).result;
-        if (!db.objectStoreNames.contains('files')) {
-          db.createObjectStore('files', { keyPath: 'id' });
-        }
+      const metadata: MediaMetadata = {
+        id,
+        type: file.type.startsWith('video/') ? 'video' : 'image',
+        mimeType: file.type,
+        name: file.name,
+        size: file.size,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        tags: [],
+        ...partialMetadata,
       };
+
+      const db = await this.getDb();
+      await db.put(LocalStorageAdapter.MEDIA_STORE, file, id);
+      await db.put(LocalStorageAdapter.METADATA_STORE, metadata, id);
+
+      if (file.type.startsWith('video/')) {
+        const thumbnail = await this.generateThumbnail(file);
+        if (thumbnail) {
+          await db.put(LocalStorageAdapter.THUMBNAIL_STORE, thumbnail, id);
+        }
+      }
+
+      const mediaUrl = URL.createObjectURL(file);
+      this.urlCache.set(id, mediaUrl);
       
-      request.onsuccess = () => {
-        try {
-          const db = request.result;
-          const transaction = db.transaction(['files'], 'readwrite');
-          const store = transaction.objectStore('files');
-          
-          // Stocker le blob directement
-          store.put({ id, data: file });
-
-          transaction.oncomplete = () => resolve();
-          transaction.onerror = () => reject(new Error(`Failed to save file: ${transaction.error}`));
-        } catch (error) {
-          reject(new Error(`Failed to write to IndexedDB: ${error}`));
+      let thumbnailUrl: string | undefined;
+      if (file.type.startsWith('video/')) {
+        const thumbnail = await db.get(LocalStorageAdapter.THUMBNAIL_STORE, id);
+        if (thumbnail) {
+          thumbnailUrl = URL.createObjectURL(thumbnail);
+          this.thumbnailUrlCache.set(id, thumbnailUrl);
         }
+      }
+
+      return {
+        id,
+        url: mediaUrl,
+        thumbnailUrl,
+        metadata,
       };
-    });
-
-    // Sauvegarder les métadonnées dans localStorage
-    const storedMetadata = await this.getStoredMetadata();
-    storedMetadata[id] = metadata;
-    await this.saveStoredMetadata(storedMetadata);
-
-    // Créer une URL pour le fichier
-    const url = URL.createObjectURL(file);
-
-    return { metadata, url };
+    } catch (error) {
+      console.error('Error in saveMedia:', error);
+      if (error instanceof Error && error.name === 'NotFoundError') {
+        await this.resetDatabase();
+        return this.saveMedia(file, partialMetadata);
+      }
+      throw error;
+    }
   }
 
   async getMedia(id: string): Promise<MediaFile> {
-    const storedMetadata = await this.getStoredMetadata();
-    const metadata = storedMetadata[id];
-    
-    if (!metadata) {
-      throw new Error(`Media not found in metadata: ${id}`);
+    try {
+      console.log('Getting media with ID:', id);
+      const db = await this.getDb();
+      const file = await db.get(LocalStorageAdapter.MEDIA_STORE, id);
+      const metadata = await db.get(LocalStorageAdapter.METADATA_STORE, id);
+
+      if (!file) {
+        throw new Error(`Media not found: ${id}`);
+      }
+
+      const finalMetadata = metadata || {
+        id,
+        type: file.type.startsWith('video/') ? 'video' : 'image',
+        mimeType: file.type || 'video/mp4',
+        name: 'Unknown',
+        size: file.size || 0,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        tags: [],
+      };
+
+      let mediaUrl = this.urlCache.get(id);
+      if (!mediaUrl) {
+        mediaUrl = URL.createObjectURL(file);
+        this.urlCache.set(id, mediaUrl);
+      }
+
+      let thumbnailUrl = this.thumbnailUrlCache.get(id);
+      if (!thumbnailUrl && finalMetadata.type === 'video') {
+        const thumbnail = await db.get(LocalStorageAdapter.THUMBNAIL_STORE, id);
+        if (thumbnail) {
+          thumbnailUrl = URL.createObjectURL(thumbnail);
+          this.thumbnailUrlCache.set(id, thumbnailUrl);
+        }
+      }
+
+      return {
+        id,
+        url: mediaUrl,
+        thumbnailUrl,
+        metadata: finalMetadata,
+      };
+    } catch (error) {
+      console.error('Error in getMedia:', error);
+      if (error instanceof Error && error.name === 'NotFoundError') {
+        await this.resetDatabase();
+        return this.getMedia(id);
+      }
+      throw error;
     }
-
-    return new Promise((resolve, reject) => {
-      const request = indexedDB.open('MediaLibrary', 1);
-      
-      request.onerror = () => reject(new Error(`Failed to open database: ${request.error}`));
-
-      request.onupgradeneeded = (event) => {
-        const db = (event.target as IDBOpenDBRequest).result;
-        if (!db.objectStoreNames.contains('files')) {
-          db.createObjectStore('files', { keyPath: 'id' });
-        }
-      };
-      
-      request.onsuccess = () => {
-        try {
-          const db = request.result;
-          const transaction = db.transaction(['files'], 'readonly');
-          const store = transaction.objectStore('files');
-          
-          const getRequest = store.get(id);
-          
-          getRequest.onerror = () => reject(new Error(`Failed to get file: ${getRequest.error}`));
-          
-          getRequest.onsuccess = () => {
-            const file = getRequest.result;
-            if (!file || !file.data) {
-              // Si le fichier n'est pas trouvé dans IndexedDB mais qu'on a les métadonnées,
-              // on retourne quand même un MediaFile avec les métadonnées
-              resolve({ metadata, url: '' });
-              return;
-            }
-            
-            try {
-              // file.data est déjà un Blob, pas besoin de le recréer
-              const url = URL.createObjectURL(file.data);
-              resolve({ metadata, url });
-            } catch (error) {
-              reject(new Error(`Failed to create blob: ${error}`));
-            }
-          };
-        } catch (error) {
-          reject(new Error(`Failed to read from IndexedDB: ${error}`));
-        }
-      };
-    });
   }
 
   async listMedia(filter?: MediaFilter): Promise<MediaFile[]> {
     try {
-      // Récupérer les métadonnées
-      const storedMetadata = await this.getStoredMetadata();
-      
-      // Créer un Map pour éviter les doublons
-      const mediaMap = new Map<string, MediaFile>();
-      
-      // Filtrer les métadonnées selon les critères
-      for (const [id, metadata] of Object.entries(storedMetadata)) {
-        if (this.matchesFilter(metadata, filter)) {
+      const db = await this.getDb();
+      const mediaKeys = await db.getAllKeys(LocalStorageAdapter.MEDIA_STORE);
+      const mediaFiles = await Promise.all(
+        mediaKeys.map(async (id) => {
           try {
-            const mediaFile = await this.getMedia(id);
-            mediaMap.set(id, mediaFile);
+            return await this.getMedia(id as string);
           } catch (error) {
-            console.warn(`Failed to load media ${id}:`, error);
+            console.error(`Error loading media ${id}:`, error);
+            return null;
           }
-        }
-      }
-      
-      // Convertir le Map en tableau
-      return Array.from(mediaMap.values());
+        })
+      );
+
+      const validMediaFiles = mediaFiles.filter((file): file is MediaFile => file !== null);
+      return filter ? validMediaFiles.filter(file => this.matchesFilter(file.metadata, filter)) : validMediaFiles;
     } catch (error) {
-      console.error('Error listing media:', error);
-      return [];
+      console.error('Error in listMedia:', error);
+      if (error instanceof Error && error.name === 'NotFoundError') {
+        await this.resetDatabase();
+        return this.listMedia(filter);
+      }
+      throw error;
     }
   }
 
-  private matchesFilter(metadata: MediaMetadata, filter?: MediaFilter): boolean {
-    if (!filter) return true;
-
+  private matchesFilter(metadata: MediaMetadata, filter: MediaFilter): boolean {
     if (filter.type && metadata.type !== filter.type) return false;
-    if (filter.tags?.length && !filter.tags.some(tag => metadata.tags.includes(tag))) return false;
-    if (filter.search && !(metadata.name.toLowerCase().includes(filter.search.toLowerCase()) || metadata.tags.some(tag => tag.toLowerCase().includes(filter.search.toLowerCase())))) return false;
-
+    if (filter.tags && filter.tags.length > 0) {
+      if (!metadata.tags.some(tag => filter.tags!.includes(tag))) return false;
+    }
+    if (filter.search) {
+      const searchLower = filter.search.toLowerCase();
+      const nameMatch = metadata.name.toLowerCase().includes(searchLower);
+      const tagMatch = metadata.tags.some(tag => tag.toLowerCase().includes(searchLower));
+      if (!nameMatch && !tagMatch) return false;
+    }
     return true;
   }
 
   async deleteMedia(id: string): Promise<void> {
-    const storedMetadata = await this.getStoredMetadata();
-    delete storedMetadata[id];
-    await this.saveStoredMetadata(storedMetadata);
+    try {
+      if (this.urlCache.has(id)) {
+        URL.revokeObjectURL(this.urlCache.get(id)!);
+        this.urlCache.delete(id);
+      }
+      if (this.thumbnailUrlCache.has(id)) {
+        URL.revokeObjectURL(this.thumbnailUrlCache.get(id)!);
+        this.thumbnailUrlCache.delete(id);
+      }
 
-    return new Promise((resolve, reject) => {
-      const request = indexedDB.open('MediaLibrary', 1);
-      
-      request.onsuccess = () => {
-        const db = request.result;
-        const transaction = db.transaction(['files'], 'readwrite');
-        const store = transaction.objectStore('files');
-        
-        const deleteRequest = store.delete(id);
-        deleteRequest.onsuccess = () => resolve();
-        deleteRequest.onerror = () => reject(new Error('Failed to delete file'));
-      };
-    });
+      const db = await this.getDb();
+      await db.delete(LocalStorageAdapter.MEDIA_STORE, id);
+      await db.delete(LocalStorageAdapter.METADATA_STORE, id);
+      await db.delete(LocalStorageAdapter.THUMBNAIL_STORE, id);
+    } catch (error) {
+      console.error('Error in deleteMedia:', error);
+      throw error;
+    }
   }
 
   async updateMetadata(id: string, updates: Partial<MediaMetadata>): Promise<MediaFile> {
-    const storedMetadata = await this.getStoredMetadata();
-    const existing = storedMetadata[id];
-    
-    if (!existing) {
-      throw new Error(`Media not found: ${id}`);
+    try {
+      const db = await this.getDb();
+      const currentMetadata = await db.get(LocalStorageAdapter.METADATA_STORE, id);
+      
+      if (!currentMetadata) {
+        throw new Error(`Metadata not found for media: ${id}`);
+      }
+
+      const updatedMetadata = {
+        ...currentMetadata,
+        ...updates,
+        id,
+        updatedAt: new Date().toISOString(),
+      };
+
+      await db.put(LocalStorageAdapter.METADATA_STORE, updatedMetadata, id);
+
+      return this.getMedia(id);
+    } catch (error) {
+      console.error('Error in updateMetadata:', error);
+      if (error instanceof Error && error.name === 'NotFoundError') {
+        await this.resetDatabase();
+        return this.updateMetadata(id, updates);
+      }
+      throw error;
     }
+  }
 
-    const updated: MediaMetadata = {
-      ...existing,
-      ...updates,
-      updatedAt: new Date()
-    };
-
-    storedMetadata[id] = updated;
-    await this.saveStoredMetadata(storedMetadata);
-
-    return this.getMedia(id);
+  public static getInstance(): LocalStorageAdapter {
+    if (!LocalStorageAdapter.instance) {
+      LocalStorageAdapter.instance = new LocalStorageAdapter();
+    }
+    return LocalStorageAdapter.instance;
   }
 }

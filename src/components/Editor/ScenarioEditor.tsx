@@ -1,74 +1,173 @@
-import React, { useState, useCallback, DragEvent, useEffect, useRef, memo } from 'react';
+import React, { useState, useCallback, useEffect, useRef, DragEvent, memo } from 'react';
 import ReactFlow, {
+  Node,
+  Edge,
+  Connection,
+  addEdge,
   Background,
   Controls,
   MiniMap,
-  Connection,
-  Edge,
-  Node,
-  addEdge,
+  NodeChange,
+  EdgeChange,
   NodeTypes,
+  EdgeTypes,
   useReactFlow,
+  applyNodeChanges,
+  applyEdgeChanges,
   ReactFlowProvider,
 } from 'reactflow';
-import VideoNode from './nodes/VideoNode2';
 import { Box } from '@mui/material';
-import 'reactflow/dist/style.css';
+import VideoNode2 from './nodes/VideoNode2';
+import ChoiceEdge from './edges/ChoiceEdge';
 import { ProjectService } from '../../services/projectService';
 import { Project } from '../../types/project';
 import Sidebar from './controls/Sidebar';
+import 'reactflow/dist/style.css';
 
-// Créer un composant mémorisé pour le nœud vidéo
-const MemoizedVideoNode = memo((props: any) => <VideoNode {...props} />);
-
-// Définir les types de nœuds en dehors du composant
 const nodeTypes: NodeTypes = {
-  video: MemoizedVideoNode,
+  videoNode2: VideoNode2,
 };
 
-let id = 0;
-const getId = () => `node_${id++}`;
+const edgeTypes: EdgeTypes = {
+  'choice-link': ChoiceEdge,
+};
+
+function getId(): string {
+  return `node-${Math.random().toString(36).substr(2, 9)}`;
+}
 
 interface ScenarioEditorProps {
-  projectId: string;
+  projectId?: string;
   onBackToLibrary?: () => void;
 }
 
 function ScenarioEditorContent({ projectId, onBackToLibrary }: ScenarioEditorProps) {
-  const [nodes, setNodes] = useState<Node[]>([]);
-  const [edges, setEdges] = useState<Edge[]>([]);
-  const [project, setProject] = useState<Project | null>(null);
+  const [nodes, setNodes, onNodesChange] = useState<Node[]>([]);
+  const [edges, setEdges, onEdgesChange] = useState<Edge[]>([]);
+  const [activeNodeId, setActiveNodeId] = useState<string | null>(null);
   const [isPlaybackMode, setIsPlaybackMode] = useState(false);
+  const [project, setProject] = useState<Project | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const { screenToFlowPosition } = useReactFlow();
+  const projectService = ProjectService.getInstance();
+
+  const onNodesChangeCallback = useCallback((changes: NodeChange[]) => {
+    setNodes((nds) => applyNodeChanges(changes, nds));
+  }, []);
+
+  const onEdgesChangeCallback = useCallback((changes: EdgeChange[]) => {
+    setEdges((eds) => applyEdgeChanges(changes, eds));
+  }, []);
+
+  const getConnectedNodeId = useCallback((nodeId: string, buttonId: string) => {
+    const edge = edges.find(e => 
+      e.source === nodeId && 
+      e.sourceHandle === `button-handle-${buttonId}`
+    );
+    return edge ? edge.target : null;
+  }, [edges]);
 
   const handleNodeDataChange = useCallback((nodeId: string, newData: any) => {
-    console.log('Updating node data:', nodeId, newData);
+    // Si on a un nextNodeId en mode lecture, activer le nœud suivant
+    if (newData.nextNodeId && isPlaybackMode) {
+      setActiveNodeId(newData.nextNodeId);
+      return;
+    }
+
+    // Mise à jour normale des données du nœud
     setNodes((nds) =>
       nds.map((node) => {
         if (node.id === nodeId) {
-          console.log('Found node to update:', node);
-          const updatedNode = {
+          return {
             ...node,
-            data: { 
-              ...node.data, 
+            data: {
+              ...node.data,
               ...newData,
-              onDataChange: handleNodeDataChange 
+              // Ajouter la fonction pour obtenir le nœud connecté
+              getConnectedNodeId: (buttonId: string) => 
+                getConnectedNodeId(nodeId, buttonId),
             },
           };
-          console.log('Updated node:', updatedNode);
-          return updatedNode;
         }
         return node;
       })
     );
-  }, []);
+  }, [setNodes, isPlaybackMode, getConnectedNodeId]);
 
   const onConnect = useCallback(
-    (params: Connection) => setEdges((eds) => addEdge(params, eds)),
-    []
+    (params: Connection) => {
+      // Créer un lien de choix si c'est depuis un bouton
+      if (params.sourceHandle?.startsWith('button-handle-')) {
+        const edge: Edge = {
+          ...params,
+          id: `choice-${params.source}-${params.target}-${params.sourceHandle}`,
+          type: 'choice-link',
+          style: { strokeWidth: 3 },
+        };
+        setEdges((eds) => [...eds, edge]);
+      } else {
+        // Lien normal
+        setEdges((eds) => addEdge(params, eds));
+      }
+    },
+    [setEdges]
   );
+
+  const onVideoEnd = useCallback((nodeId: string) => {
+    if (isPlaybackMode) {
+      const outgoingEdges = edges.filter(edge => edge.source === nodeId);
+      if (outgoingEdges.length > 0) {
+        setActiveNodeId(outgoingEdges[0].target);
+      } else {
+        setIsPlaybackMode(false);
+        setActiveNodeId(null);
+      }
+    }
+  }, [isPlaybackMode, edges]);
+
+  const handleSave = useCallback(async () => {
+    if (!projectId || !project) return;
+
+    setIsSaving(true);
+    try {
+      console.log('Saving project:', projectId);
+      const updatedProject = {
+        ...project,
+        nodes: nodes.map(node => ({
+          ...node,
+          data: {
+            ...node.data,
+            onDataChange: undefined,
+            onVideoEnd: undefined
+          }
+        })),
+        edges,
+        updatedAt: new Date().toISOString()
+      };
+      await projectService.saveProject(updatedProject);
+      console.log('Project saved successfully');
+    } catch (error) {
+      console.error('Error saving project:', error);
+    } finally {
+      setIsSaving(false);
+    }
+  }, [projectId, project, nodes, edges, projectService]);
+
+  const startPlayback = useCallback(() => {
+    setIsPlaybackMode(true);
+    // Trouver le premier nœud (sans connexions entrantes)
+    const targetNodeIds = new Set(edges.map(edge => edge.target));
+    const startNodes = nodes.filter(node => !targetNodeIds.has(node.id));
+    if (startNodes.length > 0) {
+      setActiveNodeId(startNodes[0].id);
+    }
+  }, [nodes, edges]);
+
+  const stopPlayback = useCallback(() => {
+    setIsPlaybackMode(false);
+    setActiveNodeId(null);
+  }, []);
 
   const onDragOver = useCallback((event: DragEvent) => {
     event.preventDefault();
@@ -82,7 +181,6 @@ function ScenarioEditorContent({ projectId, onBackToLibrary }: ScenarioEditorPro
       if (!reactFlowWrapper.current) return;
 
       const type = event.dataTransfer.getData('application/reactflow');
-      console.log('Dropped node type:', type);
       if (!type) return;
 
       const position = screenToFlowPosition({
@@ -99,64 +197,14 @@ function ScenarioEditorContent({ projectId, onBackToLibrary }: ScenarioEditorPro
           onDataChange: handleNodeDataChange,
           mediaId: undefined,
           isPlaybackMode: false,
+          getConnectedNodeId: (buttonId: string) => getConnectedNodeId(getId(), buttonId),
         },
       };
 
-      console.log('Creating new node:', newNode);
       setNodes((nds) => nds.concat(newNode));
     },
-    [screenToFlowPosition, handleNodeDataChange]
+    [screenToFlowPosition, handleNodeDataChange, getConnectedNodeId]
   );
-
-  const handleSave = useCallback(async () => {
-    if (!projectId || !project) return;
-
-    setIsSaving(true);
-    try {
-      console.log('Saving project:', projectId);
-      const projectService = new ProjectService();
-      const updatedProject = {
-        ...project,
-        nodes: nodes.map(node => ({
-          ...node,
-          data: {
-            ...node.data,
-            onDataChange: undefined
-          }
-        })),
-        edges,
-        updatedAt: new Date().toISOString()
-      };
-      await projectService.saveProject(updatedProject);
-      console.log('Project saved successfully');
-    } catch (error) {
-      console.error('Error saving project:', error);
-    } finally {
-      setIsSaving(false);
-    }
-  }, [projectId, project, nodes, edges]);
-
-  const startPlayback = useCallback(() => {
-    setIsPlaybackMode(true);
-    setNodes(nodes => nodes.map(node => ({
-      ...node,
-      data: { 
-        ...node.data, 
-        isPlaybackMode: true,
-      }
-    })));
-  }, []);
-
-  const stopPlayback = useCallback(() => {
-    setIsPlaybackMode(false);
-    setNodes(nodes => nodes.map(node => ({
-      ...node,
-      data: { 
-        ...node.data, 
-        isPlaybackMode: false,
-      }
-    })));
-  }, []);
 
   // Load project data
   useEffect(() => {
@@ -165,23 +213,26 @@ function ScenarioEditorContent({ projectId, onBackToLibrary }: ScenarioEditorPro
       
       try {
         console.log('Loading project:', projectId);
-        const projectService = new ProjectService();
-        const loadedProject = await projectService.getProject(projectId);
+        const loadedProject = await projectService.loadProject(projectId);
         console.log('Loaded project:', loadedProject);
         
         if (loadedProject) {
           setProject(loadedProject);
+          
+          // Charger les nœuds avec les callbacks de base
           if (loadedProject.nodes) {
-            setNodes(loadedProject.nodes.map(node => ({
+            const nodesWithCallbacks = loadedProject.nodes.map(node => ({
               ...node,
-              data: { 
-                ...node.data, 
+              data: {
+                ...node.data,
                 onDataChange: handleNodeDataChange,
-                mediaId: node.data.mediaId,
+                onVideoEnd: () => onVideoEnd(node.id),
                 isPlaybackMode: false,
               }
-            })));
+            }));
+            setNodes(nodesWithCallbacks);
           }
+          
           if (loadedProject.edges) {
             setEdges(loadedProject.edges);
           }
@@ -192,110 +243,78 @@ function ScenarioEditorContent({ projectId, onBackToLibrary }: ScenarioEditorPro
     };
 
     loadProject();
-  }, [projectId, handleNodeDataChange]);
+  }, [projectId]);  // Ne dépend que de projectId
 
-  // Save project data when nodes or edges change
   useEffect(() => {
-    const saveProject = async () => {
-      if (!projectId || !project) return;
-
-      try {
-        console.log('Saving project:', projectId);
-        const projectService = new ProjectService();
-        const updatedProject = {
-          ...project,
-          nodes: nodes.map(node => ({
-            ...node,
-            data: {
-              ...node.data,
-              onDataChange: undefined
-            }
-          })),
-          edges,
-          updatedAt: new Date().toISOString()
-        };
-        await projectService.saveProject(updatedProject);
-        console.log('Project saved successfully');
-      } catch (error) {
-        console.error('Error saving project:', error);
+    setNodes(nodes => nodes.map(node => ({
+      ...node,
+      data: {
+        ...node.data,
+        onDataChange: handleNodeDataChange,
+        getConnectedNodeId: (buttonId: string) => getConnectedNodeId(node.id, buttonId),
       }
-    };
+    })));
+  }, [handleNodeDataChange, getConnectedNodeId]);
 
-    const debounceTimeout = setTimeout(saveProject, 1000);
-    return () => clearTimeout(debounceTimeout);
-  }, [projectId, project, nodes, edges]);
+  useEffect(() => {
+    setNodes(nodes => nodes.map(node => ({
+      ...node,
+      data: {
+        ...node.data,
+        isPlaybackMode: isPlaybackMode && node.id === activeNodeId,
+      }
+    })));
+  }, [isPlaybackMode, activeNodeId]);
 
   return (
-    <Box
-      ref={reactFlowWrapper}
-      sx={{
-        width: '100%',
-        height: '100%',
-        display: 'flex',
-      }}
-    >
-      <Box sx={{ flexGrow: 1, height: '100%' }}>
+    <Box sx={{ width: '100%', height: '100%', position: 'relative' }}>
+      <div ref={reactFlowWrapper} style={{ width: '100%', height: '100%' }}>
         <ReactFlow
           nodes={nodes}
           edges={edges}
-          onNodesChange={(changes) => {
-            setNodes((nds) => {
-              const newNodes = [...nds];
-              changes.forEach((change) => {
-                const nodeIndex = newNodes.findIndex((n) => n.id === change.id);
-                if (nodeIndex !== -1) {
-                  if (change.type === 'position') {
-                    newNodes[nodeIndex] = {
-                      ...newNodes[nodeIndex],
-                      position: change.position || newNodes[nodeIndex].position,
-                    };
-                  }
-                }
-              });
-              return newNodes;
-            });
-          }}
-          onEdgesChange={(changes) => {
-            setEdges((eds) => {
-              const newEdges = [...eds];
-              changes.forEach((change) => {
-                const edgeIndex = newEdges.findIndex((e) => e.id === change.id);
-                if (edgeIndex !== -1) {
-                  if (change.type === 'remove') {
-                    newEdges.splice(edgeIndex, 1);
-                  }
-                }
-              });
-              return newEdges;
-            });
-          }}
+          onNodesChange={onNodesChangeCallback}
+          onEdgesChange={onEdgesChangeCallback}
           onConnect={onConnect}
           onDrop={onDrop}
           onDragOver={onDragOver}
           nodeTypes={nodeTypes}
+          edgeTypes={edgeTypes}
           fitView
+          snapToGrid
+          snapGrid={[15, 15]}
         >
           <Background />
           <Controls />
-          <MiniMap />
+          <MiniMap 
+            nodeColor={(node) => {
+              switch (node.type) {
+                case 'videoNode2':
+                  return '#00ff00';
+                default:
+                  return '#eee';
+              }
+            }}
+          />
         </ReactFlow>
-      </Box>
-      <Sidebar 
+      </div>
+      <Sidebar
         onSave={handleSave}
-        onPlay={startPlayback}
-        isPlaybackMode={isPlaybackMode}
-        onPlayModeToggle={isPlaybackMode ? stopPlayback : startPlayback}
-        onBackToLibrary={onBackToLibrary}
         isSaving={isSaving}
+        onBackToLibrary={onBackToLibrary}
+        isPlaybackMode={isPlaybackMode}
+        onStartPlayback={startPlayback}
+        onStopPlayback={stopPlayback}
       />
     </Box>
   );
 }
 
-export default function ScenarioEditor(props: ScenarioEditorProps) {
+function ScenarioEditor(props: ScenarioEditorProps) {
   return (
     <ReactFlowProvider>
       <ScenarioEditorContent {...props} />
     </ReactFlowProvider>
   );
 }
+
+export default ScenarioEditor;

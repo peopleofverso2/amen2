@@ -12,7 +12,7 @@ interface PresentationModeProps {
 }
 
 const nodeTypes = {
-  videoNode: VideoNode,
+  videoNode2: VideoNode,
   buttonNode: ButtonNode,
 };
 
@@ -64,7 +64,7 @@ const PresentationMode: React.FC<PresentationModeProps> = ({ nodes, edges, onClo
   if (!NodeComponent) return null;
 
   const nodeStyles = {
-    videoNode: {
+    videoNode2: {
       width: '80vw',
       height: '80vh',
       '& video': {
@@ -112,7 +112,7 @@ const PresentationMode: React.FC<PresentationModeProps> = ({ nodes, edges, onClo
         sx={{ 
           maxWidth: '90vw', 
           maxHeight: '90vh',
-          ...(currentNode.type === 'videoNode' ? nodeStyles.videoNode : {}),
+          ...(currentNode.type === 'videoNode2' ? nodeStyles.videoNode2 : {}),
           ...(currentNode.type === 'buttonNode' ? nodeStyles.buttonNode : {}),
         }}
       >

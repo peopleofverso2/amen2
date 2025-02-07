@@ -1,41 +1,35 @@
 import React, { useState } from 'react';
-import { Box, CssBaseline, ThemeProvider } from '@mui/material';
+import { Container, CssBaseline, ThemeProvider } from '@mui/material';
 import { theme } from './theme';
 import ScenarioEditor from './components/Editor/ScenarioEditor';
 import ProjectLibrary from './components/ProjectLibrary/ProjectLibrary';
 import { ProjectService } from './services/projectService';
-import { Project } from './types/project';
 
 function App() {
-  const [selectedProject, setSelectedProject] = useState<Project | null>(null);
-  const projectService = ProjectService.getInstance();
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const [projectService] = useState(() => ProjectService.getInstance());
 
-  const handleProjectSelect = async (projectId: string) => {
-    try {
-      const project = await projectService.loadProject(projectId);
-      setSelectedProject(project);
-    } catch (error) {
-      console.error('Error loading project:', error);
-    }
+  const handleProjectSelect = (projectId: string) => {
+    setSelectedProjectId(projectId);
   };
 
   const handleBackToLibrary = () => {
-    setSelectedProject(null);
+    setSelectedProjectId(null);
   };
 
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
-      <Box sx={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
-        {selectedProject ? (
-          <ScenarioEditor 
-            projectId={selectedProject.id} 
-            onBackToLibrary={handleBackToLibrary} 
+      <Container maxWidth={false} disableGutters sx={{ height: '100vh', overflow: 'hidden' }}>
+        {selectedProjectId ? (
+          <ScenarioEditor
+            projectId={selectedProjectId}
+            onBackToLibrary={handleBackToLibrary}
           />
         ) : (
           <ProjectLibrary onProjectSelect={handleProjectSelect} />
         )}
-      </Box>
+      </Container>
     </ThemeProvider>
   );
 }

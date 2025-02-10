@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useRef, DragEvent, memo } from 'react';
+import React, { useState, useCallback, useEffect, useRef, DragEvent, memo, useMemo } from 'react';
 import ReactFlow, {
   Node,
   Edge,
@@ -23,21 +23,11 @@ import ChoiceEdge from './edges/ChoiceEdge';
 import { ProjectService } from '../../services/projectService';
 import { Project } from '../../types/project';
 import Sidebar from './controls/Sidebar';
-import PovPlayer from '../Player/PovPlayer';
-import { PovExportService } from '../../services/PovExportService';
 import 'reactflow/dist/style.css';
 import debounce from 'lodash.debounce';
 
-const nodeTypes: NodeTypes = {
-  videoNode2: VideoNode2,
-};
-
-const edgeTypes: EdgeTypes = {
-  'choice': ChoiceEdge,
-};
-
-function getId(): string {
-  return `node-${Math.random().toString(36).substr(2, 9)}`;
+const getId = (): string => {
+  return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 }
 
 interface ScenarioEditorProps {
@@ -52,12 +42,18 @@ function ScenarioEditorContent({ projectId, onBackToLibrary }: ScenarioEditorPro
   const [isPlaybackMode, setIsPlaybackMode] = useState(false);
   const [project, setProject] = useState<Project | null>(null);
   const [isSaving, setIsSaving] = useState(false);
-  const [showPovPlayer, setShowPovPlayer] = useState(false);
-  const [povScenario, setPovScenario] = useState<any>(null);
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const { screenToFlowPosition } = useReactFlow();
   const projectService = ProjectService.getInstance();
-  const povExportService = useRef(PovExportService.getInstance());
+
+  // Définir les types de nœuds et d'arêtes
+  const nodeTypes = useMemo<NodeTypes>(() => ({
+    videoNode2: VideoNode2,
+  }), []);
+
+  const edgeTypes = useMemo<EdgeTypes>(() => ({
+    'choice': ChoiceEdge,
+  }), []);
 
   // Gérer la fin d'une vidéo
   const onVideoEnd = useCallback((nodeId: string) => {
@@ -322,25 +318,6 @@ function ScenarioEditorContent({ projectId, onBackToLibrary }: ScenarioEditorPro
     [screenToFlowPosition, handleNodeDataChange, getConnectedNodeId]
   );
 
-  const handlePlayScenario = useCallback(async () => {
-    try {
-      if (!project) return;
-
-      // Exporter le scénario au format POV
-      const scenario = await povExportService.current.exportScenario(
-        nodes,
-        edges,
-        project.title
-      );
-
-      // Sauvegarder le scénario et ouvrir le lecteur
-      setPovScenario(scenario);
-      setShowPovPlayer(true);
-    } catch (error) {
-      console.error('Error exporting scenario:', error);
-    }
-  }, [nodes, edges, project]);
-
   // Charger le projet au démarrage
   useEffect(() => {
     let isSubscribed = true;
@@ -441,26 +418,6 @@ function ScenarioEditorContent({ projectId, onBackToLibrary }: ScenarioEditorPro
               }}
             />
           </ReactFlow>
-          
-          {/* Bouton de lecture POV */}
-          <Box
-            sx={{
-              position: 'absolute',
-              bottom: 20,
-              right: 20,
-              zIndex: 10
-            }}
-          >
-            <Button
-              variant="contained"
-              color="primary"
-              startIcon={<PlayArrowIcon />}
-              onClick={handlePlayScenario}
-              disabled={nodes.length === 0}
-            >
-              Play Scenario
-            </Button>
-          </Box>
         </div>
 
         <Sidebar
@@ -471,14 +428,6 @@ function ScenarioEditorContent({ projectId, onBackToLibrary }: ScenarioEditorPro
           onStartPlayback={startPlayback}
           onStopPlayback={stopPlayback}
         />
-
-        {/* Lecteur POV */}
-        {showPovPlayer && povScenario && (
-          <PovPlayer
-            scenario={povScenario}
-            onClose={() => setShowPovPlayer(false)}
-          />
-        )}
       </Box>
     </Box>
   );

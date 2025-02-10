@@ -2,11 +2,19 @@ import { MediaStorageAdapter, MediaFile, MediaMetadata, MediaFilter } from '../t
 import { LocalStorageAdapter } from './storage/LocalStorageAdapter';
 
 export class MediaLibraryService {
+  private static instance: MediaLibraryService;
   private storageAdapter: MediaStorageAdapter;
   private urlCache: Map<string, string> = new Map();
 
-  constructor(adapter?: MediaStorageAdapter) {
+  private constructor(adapter?: MediaStorageAdapter) {
     this.storageAdapter = adapter || LocalStorageAdapter.getInstance();
+  }
+
+  public static getInstance(adapter?: MediaStorageAdapter): MediaLibraryService {
+    if (!MediaLibraryService.instance) {
+      MediaLibraryService.instance = new MediaLibraryService(adapter);
+    }
+    return MediaLibraryService.instance;
   }
 
   setStorageAdapter(adapter: MediaStorageAdapter) {
@@ -147,5 +155,15 @@ export class MediaLibraryService {
 
   async updateMetadata(id: string, metadata: Partial<MediaMetadata>): Promise<MediaFile> {
     return this.storageAdapter.updateMetadata(id, metadata);
+  }
+
+  async checkMediaExists(mediaId: string): Promise<boolean> {
+    try {
+      const media = await this.storageAdapter.getMedia(mediaId);
+      return !!media;
+    } catch (error) {
+      console.error('Error checking media existence:', error);
+      return false;
+    }
   }
 }

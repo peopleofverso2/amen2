@@ -16,12 +16,15 @@ import ReactFlow, {
   applyEdgeChanges,
   ReactFlowProvider,
 } from 'reactflow';
-import { Box } from '@mui/material';
+import { Box, Button } from '@mui/material';
+import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import VideoNode2 from './nodes/VideoNode2';
 import ChoiceEdge from './edges/ChoiceEdge';
 import { ProjectService } from '../../services/projectService';
 import { Project } from '../../types/project';
 import Sidebar from './controls/Sidebar';
+import PovPlayer from '../Player/PovPlayer';
+import { PovExportService } from '../../services/PovExportService';
 import 'reactflow/dist/style.css';
 import debounce from 'lodash.debounce';
 
@@ -30,7 +33,7 @@ const nodeTypes: NodeTypes = {
 };
 
 const edgeTypes: EdgeTypes = {
-  'choice-link': ChoiceEdge,
+  'choice': ChoiceEdge,
 };
 
 function getId(): string {
@@ -49,9 +52,12 @@ function ScenarioEditorContent({ projectId, onBackToLibrary }: ScenarioEditorPro
   const [isPlaybackMode, setIsPlaybackMode] = useState(false);
   const [project, setProject] = useState<Project | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [showPovPlayer, setShowPovPlayer] = useState(false);
+  const [povScenario, setPovScenario] = useState<any>(null);
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const { screenToFlowPosition } = useReactFlow();
   const projectService = ProjectService.getInstance();
+  const povExportService = useRef(PovExportService.getInstance());
 
   // Gérer la fin d'une vidéo
   const onVideoEnd = useCallback((nodeId: string) => {
@@ -316,6 +322,25 @@ function ScenarioEditorContent({ projectId, onBackToLibrary }: ScenarioEditorPro
     [screenToFlowPosition, handleNodeDataChange, getConnectedNodeId]
   );
 
+  const handlePlayScenario = useCallback(async () => {
+    try {
+      if (!project) return;
+
+      // Exporter le scénario au format POV
+      const scenario = await povExportService.current.exportScenario(
+        nodes,
+        edges,
+        project.title
+      );
+
+      // Sauvegarder le scénario et ouvrir le lecteur
+      setPovScenario(scenario);
+      setShowPovPlayer(true);
+    } catch (error) {
+      console.error('Error exporting scenario:', error);
+    }
+  }, [nodes, edges, project]);
+
   // Charger le projet au démarrage
   useEffect(() => {
     let isSubscribed = true;
@@ -385,45 +410,76 @@ function ScenarioEditorContent({ projectId, onBackToLibrary }: ScenarioEditorPro
   }, [isPlaybackMode, activeNodeId, handleNodeDataChange, onVideoEnd, getConnectedNodeId, handleChoiceSelect]);
 
   return (
-    <Box sx={{ width: '100%', height: '100%', position: 'relative' }}>
-      <div ref={reactFlowWrapper} style={{ width: '100%', height: '100%' }}>
-        <ReactFlow
-          nodes={nodes}
-          edges={edges}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
-          onConnect={onConnect}
-          onEdgesDelete={onEdgesDelete}
-          onDrop={onDrop}
-          onDragOver={onDragOver}
-          nodeTypes={nodeTypes}
-          edgeTypes={edgeTypes}
-          fitView
-          snapToGrid
-          snapGrid={[15, 15]}
-        >
-          <Background />
-          <Controls />
-          <MiniMap 
-            nodeColor={(node) => {
-              switch (node.type) {
-                case 'videoNode2':
-                  return '#00ff00';
-                default:
-                  return '#eee';
-              }
+    <Box sx={{ width: '100%', height: '100%', display: 'flex' }}>
+      <Box sx={{ flex: 1, position: 'relative' }}>
+        <div ref={reactFlowWrapper} style={{ width: '100%', height: '100%' }}>
+          <ReactFlow
+            nodes={nodes}
+            edges={edges}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            onConnect={onConnect}
+            onEdgesDelete={onEdgesDelete}
+            onDrop={onDrop}
+            onDragOver={onDragOver}
+            nodeTypes={nodeTypes}
+            edgeTypes={edgeTypes}
+            fitView
+            snapToGrid
+            snapGrid={[15, 15]}
+          >
+            <Background />
+            <Controls />
+            <MiniMap 
+              nodeColor={(node) => {
+                switch (node.type) {
+                  case 'videoNode2':
+                    return '#00ff00';
+                  default:
+                    return '#eee';
+                }
+              }}
+            />
+          </ReactFlow>
+          
+          {/* Bouton de lecture POV */}
+          <Box
+            sx={{
+              position: 'absolute',
+              bottom: 20,
+              right: 20,
+              zIndex: 10
             }}
+          >
+            <Button
+              variant="contained"
+              color="primary"
+              startIcon={<PlayArrowIcon />}
+              onClick={handlePlayScenario}
+              disabled={nodes.length === 0}
+            >
+              Play Scenario
+            </Button>
+          </Box>
+        </div>
+
+        <Sidebar
+          onSave={handleSave}
+          isSaving={isSaving}
+          onBackToLibrary={onBackToLibrary}
+          isPlaybackMode={isPlaybackMode}
+          onStartPlayback={startPlayback}
+          onStopPlayback={stopPlayback}
+        />
+
+        {/* Lecteur POV */}
+        {showPovPlayer && povScenario && (
+          <PovPlayer
+            scenario={povScenario}
+            onClose={() => setShowPovPlayer(false)}
           />
-        </ReactFlow>
-      </div>
-      <Sidebar
-        onSave={handleSave}
-        isSaving={isSaving}
-        onBackToLibrary={onBackToLibrary}
-        isPlaybackMode={isPlaybackMode}
-        onStartPlayback={startPlayback}
-        onStopPlayback={stopPlayback}
-      />
+        )}
+      </Box>
     </Box>
   );
 }

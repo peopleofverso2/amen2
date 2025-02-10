@@ -143,6 +143,29 @@ export default function VideoNode2({ id, data, selected }: VideoNodeProps) {
     }
   }, [data.isPlaying]);
 
+  const renderChoiceButtons = () => {
+    if (!data.choices) return null;
+    
+    return data.choices.map((choice: any, index: number) => (
+      <Box key={choice.id} sx={{ mb: 1 }}>
+        <Handle
+          type="source"
+          position={Position.Right}
+          id={`choice-${choice.id}`}
+          style={{ top: `${(index + 1) * 30}px`, right: '-8px' }}
+        />
+        <Button
+          variant="contained"
+          size="small"
+          onClick={() => handleChoiceClick(choice)}
+          sx={{ width: '100%', mb: 1 }}
+        >
+          {choice.text || 'Continue'}
+        </Button>
+      </Box>
+    ));
+  };
+
   return (
     <div 
       style={{ position: 'relative' }}
@@ -259,32 +282,7 @@ export default function VideoNode2({ id, data, selected }: VideoNodeProps) {
                 </Button>
               )}
 
-              {data.choices?.map((choice, index) => (
-                <React.Fragment key={choice.id}>
-                  <Button
-                    variant={data.isPlaybackMode ? "contained" : "outlined"}
-                    color="primary"
-                    fullWidth
-                    onClick={() => data.isPlaybackMode ? handleChoiceClick(choice) : null}
-                    sx={{ mb: 1 }}
-                    disabled={data.isPlaybackMode && !data.isCurrentNode}
-                  >
-                    {choice.text}
-                  </Button>
-                  <Handle
-                    type="source"
-                    position={Position.Bottom}
-                    id={`button-handle-${choice.id}`}
-                    style={{
-                      left: `${((index + 1) * 100) / (data.choices.length + 1)}%`,
-                      bottom: -5,
-                      background: '#555',
-                      width: 10,
-                      height: 10,
-                    }}
-                  />
-                </React.Fragment>
-              ))}
+              {renderChoiceButtons()}
             </Box>
           </Box>
         )}

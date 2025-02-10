@@ -335,4 +335,28 @@ export class ProjectService {
       throw error;
     }
   }
+
+  async getProject(projectId: string): Promise<Project> {
+    await this.initialize();
+    const db = await this.getDB();
+    
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction([STORE_NAME], 'readonly');
+      const store = transaction.objectStore(STORE_NAME);
+      const request = store.get(projectId);
+      
+      request.onerror = () => {
+        reject(new Error('Error getting project'));
+      };
+      
+      request.onsuccess = () => {
+        const project = request.result;
+        if (!project) {
+          reject(new Error('Project not found'));
+        } else {
+          resolve(project);
+        }
+      };
+    });
+  }
 }

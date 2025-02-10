@@ -1,30 +1,19 @@
 import React from 'react';
-import {
-  List,
-  ListItem,
-  ListItemButton,
-  ListItemText,
-  Typography,
-  Paper,
-} from '@mui/material';
+import { Grid, Typography, Paper } from '@mui/material';
 import { ProjectMetadata } from '../../types/project';
+import ProjectCard from './ProjectCard';
 
 interface ProjectListProps {
   projects: ProjectMetadata[];
   onProjectSelect: (projectId: string) => void;
+  onProjectDelete?: (projectId: string) => void;
 }
 
-const ProjectList: React.FC<ProjectListProps> = ({ projects, onProjectSelect }) => {
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('fr-FR', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  };
-
+const ProjectList: React.FC<ProjectListProps> = ({ 
+  projects, 
+  onProjectSelect,
+  onProjectDelete,
+}) => {
   if (projects.length === 0) {
     return (
       <Paper sx={{ p: 3, textAlign: 'center' }}>
@@ -36,44 +25,17 @@ const ProjectList: React.FC<ProjectListProps> = ({ projects, onProjectSelect }) 
   }
 
   return (
-    <Paper>
-      <List>
-        {projects.map((project) => (
-          <ListItem
-            key={project.projectId}
-            divider
-            disablePadding
-          >
-            <ListItemButton onClick={() => onProjectSelect(project.projectId)}>
-              <ListItemText
-                primary={project.scenarioTitle}
-                secondary={
-                  <>
-                    {project.description && (
-                      <Typography
-                        component="span"
-                        variant="body2"
-                        color="text.primary"
-                        sx={{ display: 'block' }}
-                      >
-                        {project.description}
-                      </Typography>
-                    )}
-                    <Typography
-                      component="span"
-                      variant="caption"
-                      color="text.secondary"
-                    >
-                      Last modified: {formatDate(project.updatedAt)}
-                    </Typography>
-                  </>
-                }
-              />
-            </ListItemButton>
-          </ListItem>
-        ))}
-      </List>
-    </Paper>
+    <Grid container spacing={3}>
+      {projects.map((project) => (
+        <Grid item xs={12} sm={6} md={4} key={project.projectId}>
+          <ProjectCard
+            project={project}
+            onProjectSelect={onProjectSelect}
+            onProjectDelete={onProjectDelete}
+          />
+        </Grid>
+      ))}
+    </Grid>
   );
 };
 

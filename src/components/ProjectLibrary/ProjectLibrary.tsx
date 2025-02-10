@@ -29,9 +29,10 @@ import FileDownloadIcon from '@mui/icons-material/FileDownload';
 
 interface ProjectLibraryProps {
   onProjectSelect: (projectId: string) => void;
+  onProjectDelete: (projectId: string) => void;
 }
 
-const ProjectLibrary: React.FC<ProjectLibraryProps> = ({ onProjectSelect }) => {
+const ProjectLibrary: React.FC<ProjectLibraryProps> = ({ onProjectSelect, onProjectDelete }) => {
   const [projects, setProjects] = useState<ProjectMetadata[]>([]);
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [newProjectTitle, setNewProjectTitle] = useState('');
@@ -84,6 +85,16 @@ const ProjectLibrary: React.FC<ProjectLibraryProps> = ({ onProjectSelect }) => {
     }
   };
 
+  const handleDeleteProject = async (projectId: string) => {
+    try {
+      await projectService.deleteProject(projectId);
+      await loadProjects();
+    } catch (error) {
+      console.error('Error deleting project:', error);
+      setError('Failed to delete project');
+    }
+  };
+
   const handleKeyPress = (event: React.KeyboardEvent) => {
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
@@ -115,7 +126,11 @@ const ProjectLibrary: React.FC<ProjectLibraryProps> = ({ onProjectSelect }) => {
         </Box>
       </Box>
 
-      <ProjectList projects={projects} onProjectSelect={onProjectSelect} />
+      <ProjectList 
+        projects={projects} 
+        onProjectSelect={onProjectSelect} 
+        onProjectDelete={handleDeleteProject}
+      />
 
       <Dialog 
         open={isCreateDialogOpen} 

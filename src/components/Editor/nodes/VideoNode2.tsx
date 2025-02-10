@@ -147,18 +147,41 @@ export default function VideoNode2({ id, data, selected }: VideoNodeProps) {
     if (!data.choices) return null;
     
     return data.choices.map((choice: any, index: number) => (
-      <Box key={choice.id} sx={{ mb: 1 }}>
+      <Box key={choice.id} sx={{ mb: 1, position: 'relative' }}>
         <Handle
           type="source"
           position={Position.Right}
           id={`choice-${choice.id}`}
-          style={{ top: `${(index + 1) * 30}px`, right: '-8px' }}
+          style={{
+            top: '50%',
+            transform: 'translateY(-50%)',
+            right: '-15px',
+            width: '15px',
+            height: '15px',
+            background: '#555',
+            border: '2px solid #fff',
+            zIndex: 1000,
+            cursor: 'crosshair',
+          }}
         />
         <Button
           variant="contained"
           size="small"
           onClick={() => handleChoiceClick(choice)}
-          sx={{ width: '100%', mb: 1 }}
+          sx={{ 
+            width: '100%', 
+            mb: 1,
+            position: 'relative',
+            '&::after': {
+              content: '""',
+              position: 'absolute',
+              top: 0,
+              right: '-30px',
+              bottom: 0,
+              width: '30px',
+              cursor: 'crosshair',
+            }
+          }}
         >
           {choice.text || 'Continue'}
         </Button>

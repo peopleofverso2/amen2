@@ -27,6 +27,8 @@ import PovPlayer from '../Player/PovPlayer';
 import { PovExportService } from '../../services/PovExportService';
 import 'reactflow/dist/style.css';
 import debounce from 'lodash.debounce';
+import { MediaLibraryService } from '../../services/MediaLibraryService';
+import { Snackbar } from '@mui/material';
 
 const nodeTypes: NodeTypes = {
   videoNode2: VideoNode2,
@@ -54,6 +56,7 @@ function ScenarioEditorContent({ projectId, onBackToLibrary }: ScenarioEditorPro
   const [isSaving, setIsSaving] = useState(false);
   const [showPovPlayer, setShowPovPlayer] = useState(false);
   const [povScenario, setPovScenario] = useState<any>(null);
+  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'info' });
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const { screenToFlowPosition } = useReactFlow();
   const projectService = ProjectService.getInstance();
@@ -234,6 +237,17 @@ function ScenarioEditorContent({ projectId, onBackToLibrary }: ScenarioEditorPro
     try {
       console.log('Saving project:', projectId);
       
+      // Vérifier que tous les médias sont bien sauvegardés
+      const mediaLibrary = await MediaLibraryService.getInstance();
+      for (const node of nodes) {
+        if (node.type === 'videoNode2' && node.data.mediaId) {
+          const exists = await mediaLibrary.checkMediaExists(node.data.mediaId);
+          if (!exists) {
+            throw new Error(`Media ${node.data.mediaId} not found. Please re-upload the video.`);
+          }
+        }
+      }
+      
       // Créer une copie propre des nœuds sans les callbacks
       const cleanNodes = nodes.map(node => ({
         ...node,
@@ -263,6 +277,12 @@ function ScenarioEditorContent({ projectId, onBackToLibrary }: ScenarioEditorPro
       console.log('Project saved successfully');
     } catch (error) {
       console.error('Error saving project:', error);
+      // Afficher l'erreur à l'utilisateur
+      setSnackbar({
+        open: true,
+        message: error instanceof Error ? error.message : 'Error saving project',
+        severity: 'error'
+      });
     } finally {
       setIsSaving(false);
     }
@@ -328,9 +348,9 @@ function ScenarioEditorContent({ projectId, onBackToLibrary }: ScenarioEditorPro
 
       // Exporter le scénario au format POV
       const scenario = await povExportService.current.exportScenario(
+        project.scenario.scenarioTitle,
         nodes,
-        edges,
-        project.title
+        edges
       );
 
       // Sauvegarder le scénario et ouvrir le lecteur
@@ -339,7 +359,7 @@ function ScenarioEditorContent({ projectId, onBackToLibrary }: ScenarioEditorPro
     } catch (error) {
       console.error('Error exporting scenario:', error);
     }
-  }, [nodes, edges, project]);
+  }, [project, nodes, edges]);
 
   // Charger le projet au démarrage
   useEffect(() => {
@@ -479,6 +499,14 @@ function ScenarioEditorContent({ projectId, onBackToLibrary }: ScenarioEditorPro
             onClose={() => setShowPovPlayer(false)}
           />
         )}
+        
+        {/* Snackbar */}
+        <Snackbar
+          open={snackbar.open}
+          message={snackbar.message}
+          severity={snackbar.severity}
+          onClose={() => setSnackbar({ open: false, message: '', severity: 'info' })}
+        />
       </Box>
     </Box>
   );

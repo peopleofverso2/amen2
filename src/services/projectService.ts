@@ -18,90 +18,67 @@ export class ProjectService {
     return ProjectService.instance;
   }
 
-  private async initialize(): Promise<void> {
+  async initialize(): Promise<void> {
     if (this.initialized) return;
-    
+
     try {
       console.log('Initializing ProjectService...');
-      const db = await this.getDB();
-      
-      // Vérifier que le store existe
-      if (!db.objectStoreNames.contains(STORE_NAME)) {
-        console.error('Store not found after initialization');
-        // Forcer une réinitialisation si le store n'existe pas
-        await this.resetDatabase();
-        await this.getDB();
-      }
-      
+      await this.getDB();
       this.initialized = true;
       console.log('ProjectService initialized successfully');
     } catch (error) {
-      console.error('Failed to initialize ProjectService:', error);
+      console.error('Error initializing ProjectService:', error);
       throw error;
     }
   }
 
-  // On garde la méthode resetDatabase mais on ne l'appelle plus automatiquement
-  private async resetDatabase(): Promise<void> {
+  async resetDatabase(): Promise<void> {
     console.log('Resetting database...');
-    return new Promise((resolve, reject) => {
+    try {
       if (this.db) {
         this.db.close();
         this.db = null;
       }
-      
-      const req = indexedDB.deleteDatabase(DB_NAME);
-      req.onsuccess = () => {
-        console.log('Database deleted successfully');
-        this.db = null;
-        this.initialized = false;
-        resolve();
-      };
-      req.onerror = () => {
-        console.error('Could not delete database:', req.error);
-        reject(req.error);
-      };
-    });
+      await deleteDB(DB_NAME);
+      console.log('Database deleted successfully');
+      await this.initialize();
+    } catch (error) {
+      console.error('Error resetting database:', error);
+      throw error;
+    }
   }
 
   private async getDB(): Promise<IDBDatabase> {
-    if (this.db) {
-      return this.db;
-    }
-
-    return new Promise((resolve, reject) => {
+    if (!this.db) {
       console.log('Opening database...', DB_NAME, 'version:', DB_VERSION);
-      const request = indexedDB.open(DB_NAME, DB_VERSION);
+      return new Promise((resolve, reject) => {
+        const request = indexedDB.open(DB_NAME, DB_VERSION);
 
-      request.onerror = () => {
-        console.error('Error opening database:', request.error);
-        reject(request.error);
-      };
-      
-      request.onsuccess = () => {
-        console.log('Database opened successfully');
-        this.db = request.result;
-        resolve(request.result);
-      };
-      
-      request.onupgradeneeded = (event) => {
-        console.log('Database upgrade needed from version:', event.oldVersion, 'to:', event.newVersion);
-        const db = (event.target as IDBOpenDBRequest).result;
-        
-        // Supprimer l'ancien store s'il existe
-        if (db.objectStoreNames.contains(STORE_NAME)) {
-          console.log('Deleting existing store:', STORE_NAME);
-          db.deleteObjectStore(STORE_NAME);
-        }
-        
-        // Créer le nouveau store avec les index
-        console.log('Creating object store:', STORE_NAME);
-        const store = db.createObjectStore(STORE_NAME, { keyPath: 'projectId' });
-        store.createIndex('updatedAt', 'updatedAt', { unique: false });
-        store.createIndex('scenarioTitle', 'scenario.scenarioTitle', { unique: false });
-        console.log('Object store created with indexes');
-      };
-    });
+        request.onerror = () => {
+          console.error('Error opening database:', request.error);
+          reject(request.error);
+        };
+
+        request.onsuccess = () => {
+          console.log('Database opened successfully');
+          this.db = request.result;
+          resolve(request.result);
+        };
+
+        request.onupgradeneeded = (event) => {
+          console.log('Database upgrade needed from version:', event.oldVersion, 'to:', event.newVersion);
+          const db = request.result;
+          
+          // Créer le store si nécessaire
+          if (!db.objectStoreNames.contains(STORE_NAME)) {
+            console.log('Creating object store:', STORE_NAME);
+            db.createObjectStore(STORE_NAME, { keyPath: 'projectId' });
+            console.log('Object store created with indexes');
+          }
+        };
+      });
+    }
+    return this.db;
   }
 
   async createProject(title: string, description: string = ''): Promise<string> {

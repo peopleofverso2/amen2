@@ -6,15 +6,20 @@ export class MediaLibraryService {
   private storageAdapter: MediaStorageAdapter;
   private urlCache: Map<string, string> = new Map();
 
-  private constructor(adapter?: MediaStorageAdapter) {
-    this.storageAdapter = adapter || LocalStorageAdapter.getInstance();
+  private constructor() {
+    // L'adaptateur sera initialisé dans init()
   }
 
-  public static getInstance(adapter?: MediaStorageAdapter): MediaLibraryService {
+  public static async getInstance(adapter?: MediaStorageAdapter): Promise<MediaLibraryService> {
     if (!MediaLibraryService.instance) {
-      MediaLibraryService.instance = new MediaLibraryService(adapter);
+      MediaLibraryService.instance = new MediaLibraryService();
+      await MediaLibraryService.instance.init(adapter);
     }
     return MediaLibraryService.instance;
+  }
+
+  private async init(adapter?: MediaStorageAdapter) {
+    this.storageAdapter = adapter || await LocalStorageAdapter.getInstance();
   }
 
   setStorageAdapter(adapter: MediaStorageAdapter) {

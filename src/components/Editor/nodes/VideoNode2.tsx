@@ -1,23 +1,23 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { Handle, Position } from 'reactflow';
 import {
-  Box,
-  Button,
-  IconButton,
-  Typography,
   Dialog,
   DialogTitle,
   DialogContent,
+  IconButton,
+  Button,
   TextField,
+  Box,
+  Typography,
   Paper,
-  Fade,
+  Fade
 } from '@mui/material';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import PauseIcon from '@mui/icons-material/Pause';
-import MovieIcon from '@mui/icons-material/Movie';
 import EditIcon from '@mui/icons-material/Edit';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
+import MovieIcon from '@mui/icons-material/Movie';
 import MediaLibrary from '../../MediaLibrary/MediaLibrary';
 import { LocalStorageAdapter } from '../../../services/storage/LocalStorageAdapter';
 import { MediaFile } from '../../../types/media';
@@ -38,26 +38,46 @@ interface VideoNodeProps {
 
 export default function VideoNode2({ id, data, selected }: VideoNodeProps) {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [isEditingButtons, setIsEditingButtons] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [isEditingChoice, setIsEditingChoice] = useState(false);
+  const [editingChoiceId, setEditingChoiceId] = useState(null);
   const [isHovered, setIsHovered] = useState(false);
   const [showButtons, setShowButtons] = useState(false);
   const [videoUrl, setVideoUrl] = useState<string>();
+  const [error, setError] = useState<string>();
   const videoRef = useRef<HTMLVideoElement>(null);
-  const storageAdapter = useRef(LocalStorageAdapter.getInstance());
+  const [storageAdapter, setStorageAdapter] = useState<LocalStorageAdapter>();
+
+  // Initialiser le LocalStorageAdapter
+  useEffect(() => {
+    const initStorage = async () => {
+      try {
+        const adapter = await LocalStorageAdapter.getInstance();
+        setStorageAdapter(adapter);
+      } catch (error) {
+        console.error('Error initializing storage:', error);
+        setError('Failed to initialize media storage');
+      }
+    };
+    initStorage();
+  }, []);
 
   const loadVideo = useCallback(async () => {
-    if (!data.mediaId) return;
+    if (!data.mediaId || !storageAdapter) return;
 
     try {
-      const mediaFile = await storageAdapter.current.getMedia(data.mediaId);
+      setError(undefined);
+      const mediaFile = await storageAdapter.getMedia(data.mediaId);
       if (mediaFile && mediaFile.url) {
         setVideoUrl(mediaFile.url);
+      } else {
+        setError('Video not found');
       }
     } catch (error) {
       console.error('Error loading video:', error);
+      setError('Failed to load video');
     }
-  }, [data.mediaId]);
+  }, [data.mediaId, storageAdapter]);
 
   useEffect(() => {
     loadVideo();
@@ -87,15 +107,22 @@ export default function VideoNode2({ id, data, selected }: VideoNodeProps) {
     }
   }, [isPlaying]);
 
-  const handleMediaSelect = useCallback((mediaFiles: MediaFile[]) => {
+  const handleMediaSelect = useCallback(async (mediaFiles: MediaFile[]) => {
     if (!mediaFiles.length || !data.onDataChange) return;
 
-    const mediaFile = mediaFiles[0];
-    data.onDataChange(id, {
-      mediaId: mediaFile.id
-    });
-    setIsDialogOpen(false);
-  }, [id, data.onDataChange]);
+    try {
+      setError(undefined);
+      const mediaFile = mediaFiles[0];
+      data.onDataChange(id, {
+        ...data,
+        mediaId: mediaFile.id
+      });
+      setIsDialogOpen(false);
+    } catch (error) {
+      console.error('Error selecting media:', error);
+      setError('Failed to select video');
+    }
+  }, [id, data, data.onDataChange]);
 
   const handleAddChoice = useCallback(() => {
     if (data.onDataChange) {
@@ -134,10 +161,12 @@ export default function VideoNode2({ id, data, selected }: VideoNodeProps) {
 
   useEffect(() => {
     if (data.isPlaying && videoRef.current) {
-      videoRef.current.currentTime = 0;
-      videoRef.current.play().catch(console.error);
+      videoRef.current.play().catch(error => {
+        console.error('Error playing video:', error);
+        setError('Failed to play video');
+      });
       setIsPlaying(true);
-    } else if (videoRef.current) {
+    } else if (!data.isPlaying && videoRef.current) {
       videoRef.current.pause();
       setIsPlaying(false);
     }
@@ -191,10 +220,15 @@ export default function VideoNode2({ id, data, selected }: VideoNodeProps) {
 
   return (
     <div 
-      style={{ position: 'relative' }}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
+      style={{ position: 'relative' }}
     >
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        style={{ background: '#555' }}
+      />
       <Handle
         type="target"
         position={Position.Top}
@@ -294,24 +328,33 @@ export default function VideoNode2({ id, data, selected }: VideoNodeProps) {
 
             <Box sx={{ p: 2 }}>
               {!data.isPlaybackMode && (
-                <Button
-                  variant="outlined"
-                  fullWidth
-                  startIcon={<EditIcon />}
-                  onClick={() => setIsEditingButtons(true)}
-                  sx={{ mb: 2 }}
-                >
-                  Edit Choices
-                </Button>
+                <>
+                  <Button
+                    variant="outlined"
+                    fullWidth
+                    startIcon={<EditIcon />}
+                    onClick={() => setIsDialogOpen(true)}
+                    sx={{ mb: 2 }}
+                  >
+                    Change Video
+                  </Button>
+                  <Button
+                    variant="outlined"
+                    fullWidth
+                    startIcon={<EditIcon />}
+                    onClick={() => setIsEditingChoice(true)}
+                    sx={{ mb: 2 }}
+                  >
+                    Edit Choices
+                  </Button>
+                </>
               )}
-
               {renderChoiceButtons()}
             </Box>
           </Box>
         )}
       </Paper>
 
-      {/* Media Library Dialog */}
       <Dialog
         open={isDialogOpen}
         onClose={() => setIsDialogOpen(false)}
@@ -328,10 +371,9 @@ export default function VideoNode2({ id, data, selected }: VideoNodeProps) {
         </DialogContent>
       </Dialog>
 
-      {/* Edit Choices Dialog */}
       <Dialog
-        open={isEditingButtons}
-        onClose={() => setIsEditingButtons(false)}
+        open={isEditingChoice}
+        onClose={() => setIsEditingChoice(false)}
         maxWidth="sm"
         fullWidth
       >
@@ -365,6 +407,12 @@ export default function VideoNode2({ id, data, selected }: VideoNodeProps) {
           </Box>
         </DialogContent>
       </Dialog>
+
+      {error && (
+        <Box sx={{ mt: 2, color: 'error.main' }}>
+          {error}
+        </Box>
+      )}
     </div>
   );
 }

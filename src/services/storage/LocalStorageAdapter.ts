@@ -55,13 +55,7 @@ export class LocalStorageAdapter implements MediaStorageAdapter {
         upgrade(db, oldVersion, newVersion, transaction) {
           console.log(`Upgrading database from version ${oldVersion} to ${newVersion}`);
           
-          if (oldVersion < newVersion) {
-            const storeNames = [...db.objectStoreNames];
-            storeNames.forEach(storeName => {
-              db.deleteObjectStore(storeName);
-            });
-          }
-
+          // Créer les stores s'ils n'existent pas
           if (!db.objectStoreNames.contains(LocalStorageAdapter.MEDIA_STORE)) {
             console.log('Creating media store');
             db.createObjectStore(LocalStorageAdapter.MEDIA_STORE);
@@ -338,7 +332,7 @@ export class LocalStorageAdapter implements MediaStorageAdapter {
     }
   }
 
-  public static getInstance(): LocalStorageAdapter {
+  public static async getInstance(): Promise<LocalStorageAdapter> {
     if (!LocalStorageAdapter.instance) {
       LocalStorageAdapter.instance = new LocalStorageAdapter();
     }

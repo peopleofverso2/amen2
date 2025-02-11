@@ -19,8 +19,6 @@ import { MediaLibraryService } from '../../services/MediaLibraryService';
 import MediaCard from './MediaCard';
 import UploadDialog from './UploadDialog';
 
-const mediaLibrary = new MediaLibraryService();
-
 interface MediaLibraryProps {
   onSelect?: (mediaFiles: MediaFile[]) => void;
   multiSelect?: boolean;
@@ -50,73 +48,80 @@ export default function MediaLibrary({
   });
 
   useEffect(() => {
-    loadMedia();
-  }, [filter, search, selectedTags]);
-
-  const loadMedia = async () => {
-    try {
-      const mediaFiles = await mediaLibrary.listMedia({
-        ...filter,
-        search,
-        tags: selectedTags,
-      });
-
-      // Filtrer les médias par type si nécessaire
-      const filteredMedia = acceptedTypes.length > 0
-        ? mediaFiles.filter(file => {
-            const mediaType = file.metadata.mimeType.split('/')[0];
-            return acceptedTypes.some(type => {
-              const [baseType] = type.split('/');
-              return type === '*' || type === file.metadata.mimeType || (type.endsWith('/*') && baseType === mediaType);
-            });
+    const loadMedia = async () => {
+      try {
+        const mediaLibrary = await MediaLibraryService.getInstance();
+        const mediaFiles = await mediaLibrary.listMedia(filter);
+        setMedia(mediaFiles.filter(file => 
+          acceptedTypes.length === 0 || 
+          acceptedTypes.some(type => {
+            const [category] = type.split('/');
+            return file.metadata.type === category || type === '*/*';
           })
-        : mediaFiles;
+        ));
+      } catch (error) {
+        console.error('Error loading media:', error);
+        setSnackbar({
+          open: true,
+          message: 'Error loading media',
+          severity: 'error'
+        });
+      }
+    };
 
-      setMedia(filteredMedia);
+    loadMedia();
+  }, [filter, acceptedTypes]);
+
+  const handleUpload = async (files: File[]) => {
+    try {
+      const mediaLibrary = await MediaLibraryService.getInstance();
+      for (const file of files) {
+        await mediaLibrary.uploadMedia(file);
+      }
       
-      // Mettre à jour les tags disponibles
-      const tags = new Set<string>();
-      filteredMedia.forEach(file => {
-        file.metadata.tags?.forEach(tag => tags.add(tag));
-      });
-      setAvailableTags(Array.from(tags));
-    } catch (error) {
-      console.error('Error loading media:', error);
+      // Refresh media list
+      const mediaFiles = await mediaLibrary.listMedia(filter);
+      setMedia(mediaFiles);
+      
       setSnackbar({
         open: true,
-        message: 'Erreur lors du chargement des médias',
+        message: 'Upload successful',
+        severity: 'success'
+      });
+    } catch (error) {
+      console.error('Error uploading files:', error);
+      setSnackbar({
+        open: true,
+        message: 'Error uploading files',
         severity: 'error'
       });
     }
-  };
-
-  const handleUpload = async (file: File, tags: string[]) => {
-    try {
-      await mediaLibrary.uploadMedia(file, { tags });
-      loadMedia();
-      loadTags();
-      setUploadOpen(false);
-      showSuccess('Média uploadé avec succès');
-    } catch (error) {
-      console.error('Erreur lors de l\'upload:', error);
-      showError('Erreur lors de l\'upload du média');
-    }
+    setUploadOpen(false);
   };
 
   const handleDelete = async (mediaFile: MediaFile) => {
     try {
+      const mediaLibrary = await MediaLibraryService.getInstance();
       await mediaLibrary.deleteMedia(mediaFile.metadata.id);
       setSelectedMedia(prev => {
         const next = new Set(prev);
         next.delete(mediaFile.metadata.id);
         return next;
       });
-      loadMedia();
-      loadTags();
-      showSuccess('Média supprimé avec succès');
+      const mediaFiles = await mediaLibrary.listMedia(filter);
+      setMedia(mediaFiles);
+      setSnackbar({
+        open: true,
+        message: 'Media deleted successfully',
+        severity: 'success'
+      });
     } catch (error) {
-      console.error('Erreur lors de la suppression:', error);
-      showError('Erreur lors de la suppression du média');
+      console.error('Error deleting media:', error);
+      setSnackbar({
+        open: true,
+        message: 'Error deleting media',
+        severity: 'error'
+      });
     }
   };
 
@@ -236,18 +241,12 @@ export default function MediaLibrary({
                 }}
                 onDelete={async () => {
                   try {
-                    await mediaLibrary.deleteMedia(mediaFile.metadata.id);
-                    loadMedia();
-                    setSnackbar({
-                      open: true,
-                      message: 'Média supprimé avec succès',
-                      severity: 'success'
-                    });
+                    await handleDelete(mediaFile);
                   } catch (error) {
                     console.error('Error deleting media:', error);
                     setSnackbar({
                       open: true,
-                      message: 'Erreur lors de la suppression du média',
+                      message: 'Error deleting media',
                       severity: 'error'
                     });
                   }
@@ -261,30 +260,7 @@ export default function MediaLibrary({
       <UploadDialog
         open={uploadOpen}
         onClose={() => setUploadOpen(false)}
-        onUpload={async (files) => {
-          try {
-            const uploadPromises = files.map(async (file) => {
-              const mediaFile = await mediaLibrary.uploadMedia(file);
-              return mediaFile;
-            });
-            
-            await Promise.all(uploadPromises);
-            loadMedia();
-            setUploadOpen(false);
-            setSnackbar({
-              open: true,
-              message: 'Upload réussi',
-              severity: 'success'
-            });
-          } catch (error) {
-            console.error('Error uploading files:', error);
-            setSnackbar({
-              open: true,
-              message: error instanceof Error ? error.message : 'Erreur lors de l\'upload',
-              severity: 'error'
-            });
-          }
-        }}
+        onUpload={handleUpload}
         acceptedTypes={acceptedTypes}
       />
 

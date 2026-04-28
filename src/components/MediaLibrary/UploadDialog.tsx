@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import {
   Dialog,
   DialogTitle,
@@ -7,6 +7,8 @@ import {
   Button,
   Box,
   Typography,
+  Autocomplete,
+  TextField,
   LinearProgress,
 } from '@mui/material';
 import { CloudUpload as CloudUploadIcon } from '@mui/icons-material';
@@ -14,63 +16,55 @@ import { CloudUpload as CloudUploadIcon } from '@mui/icons-material';
 interface UploadDialogProps {
   open: boolean;
   onClose: () => void;
-  onUpload: (files: File[]) => Promise<void>;
-  acceptedTypes?: string[];
+  onUpload: (files: File[], tags: string[]) => Promise<void>;
+  availableTags: string[];
 }
 
 export default function UploadDialog({
   open,
   onClose,
   onUpload,
-  acceptedTypes = [],
+  availableTags,
 }: UploadDialogProps) {
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [uploading, setUploading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [previewUrls, setPreviewUrls] = useState<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const validateFile = (file: File): boolean => {
-    if (acceptedTypes.length === 0) return true;
-
-    const mediaType = file.type.split('/')[0];
-    return acceptedTypes.some(type => {
-      const [baseType] = type.split('/');
-      return type === '*' || type === file.type || (type.endsWith('/*') && baseType === mediaType);
+  const clearPreviews = useCallback(() => {
+    setPreviewUrls((previousUrls) => {
+      previousUrls.forEach((url) => URL.revokeObjectURL(url));
+      return [];
     });
-  };
+  }, []);
+
+  useEffect(() => () => clearPreviews(), [clearPreviews]);
+
+  const setFilesFromSelection = useCallback(
+    (fileList: FileList | null | undefined) => {
+      const files = fileList ? Array.from(fileList) : [];
+      if (files.length === 0) {
+        return;
+      }
+
+      clearPreviews();
+      setSelectedFiles(files);
+      setPreviewUrls(files.map((file) => URL.createObjectURL(file)));
+    },
+    [clearPreviews]
+  );
 
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(event.target.files || []);
-    handleFiles(files);
+    setFilesFromSelection(event.target.files);
+    if (event.target) {
+      event.target.value = '';
+    }
   };
 
   const handleDrop = (event: React.DragEvent<HTMLDivElement>) => {
     event.preventDefault();
-    const files = Array.from(event.dataTransfer.files);
-    handleFiles(files);
-  };
-
-  const handleFiles = (files: File[]) => {
-    setError(null);
-    
-    const validFiles: File[] = [];
-    const invalidFiles: string[] = [];
-
-    files.forEach(file => {
-      if (validateFile(file)) {
-        validFiles.push(file);
-      } else {
-        invalidFiles.push(file.name);
-      }
-    });
-
-    if (invalidFiles.length > 0) {
-      setError(`Types de fichiers non acceptés : ${invalidFiles.join(', ')}\nTypes acceptés : ${acceptedTypes.join(', ')}`);
-    }
-
-    if (validFiles.length > 0) {
-      setSelectedFiles(prevFiles => [...prevFiles, ...validFiles]);
-    }
+    setFilesFromSelection(event.dataTransfer.files);
   };
 
   const handleDragOver = (event: React.DragEvent<HTMLDivElement>) => {
@@ -78,37 +72,37 @@ export default function UploadDialog({
   };
 
   const handleUpload = async () => {
-    if (selectedFiles.length === 0) return;
-    
-    setUploading(true);
-    setError(null);
-    
-    try {
-      await onUpload(selectedFiles);
-      handleClose();
-    } catch (error) {
-      console.error('Erreur lors de l\'upload:', error);
-      setError(error instanceof Error ? error.message : 'Erreur lors de l\'upload');
-    } finally {
-      setUploading(false);
+    if (selectedFiles.length > 0) {
+      setUploading(true);
+      try {
+        await onUpload(selectedFiles, selectedTags);
+        handleClose();
+      } catch (error) {
+        console.error('Erreur lors de l\'upload:', error);
+      } finally {
+        setUploading(false);
+      }
     }
   };
 
   const handleClose = () => {
     setSelectedFiles([]);
-    setError(null);
+    setSelectedTags([]);
+    clearPreviews();
     setUploading(false);
     onClose();
   };
 
-  const removeFile = (index: number) => {
-    setSelectedFiles(prevFiles => prevFiles.filter((_, i) => i !== index));
-  };
+  const primarySelectedFile = selectedFiles[0] || null;
+  const isSingleSelection = selectedFiles.length === 1;
+  const isVideo = primarySelectedFile?.type.startsWith('video/');
+  const primaryPreviewUrl = previewUrls[0] || '';
 
   return (
     <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth>
-      <DialogTitle>Uploader des médias</DialogTitle>
+      <DialogTitle>Uploader un média</DialogTitle>
       <DialogContent>
+        {/* Zone de drop */}
         <Box
           sx={{
             border: '2px dashed #ccc',
@@ -128,64 +122,88 @@ export default function UploadDialog({
           <input
             type="file"
             ref={fileInputRef}
-            style={{ display: 'none' }}
             onChange={handleFileSelect}
+            style={{ display: 'none' }}
+            accept="video/*,image/*"
             multiple
-            accept={acceptedTypes.join(',')}
           />
-          <CloudUploadIcon sx={{ fontSize: 48, color: 'action.active', mb: 1 }} />
-          <Typography variant="h6" gutterBottom>
-            Glissez-déposez vos fichiers ici
-          </Typography>
-          <Typography color="textSecondary">
-            ou cliquez pour sélectionner
-          </Typography>
-          {acceptedTypes.length > 0 && (
-            <Typography variant="caption" color="textSecondary" sx={{ mt: 1, display: 'block' }}>
-              Types acceptés : {acceptedTypes.join(', ')}
-            </Typography>
+          
+          {selectedFiles.length > 0 ? (
+            <Box sx={{ width: '100%', maxHeight: 300, overflow: 'hidden' }}>
+              {isSingleSelection ? (
+                <>
+                  {isVideo ? (
+                    <video
+                      src={primaryPreviewUrl}
+                      style={{ width: '100%', height: 'auto' }}
+                      controls
+                    />
+                  ) : (
+                    <img
+                      src={primaryPreviewUrl}
+                      style={{ width: '100%', height: 'auto' }}
+                      alt="Prévisualisation"
+                    />
+                  )}
+                  <Typography variant="body2" sx={{ mt: 1 }}>
+                    {primarySelectedFile?.name}
+                  </Typography>
+                </>
+              ) : (
+                <Box sx={{ textAlign: 'left' }}>
+                  <Typography variant="subtitle1" sx={{ mb: 1 }}>
+                    {selectedFiles.length} fichiers sélectionnés
+                  </Typography>
+                  <Box
+                    sx={{
+                      maxHeight: 180,
+                      overflowY: 'auto',
+                      bgcolor: 'rgba(255,255,255,0.04)',
+                      borderRadius: 1,
+                      px: 1.5,
+                      py: 1,
+                    }}
+                  >
+                    {selectedFiles.map((file) => (
+                      <Typography
+                        key={`${file.name}-${file.lastModified}-${file.size}`}
+                        variant="body2"
+                        sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                      >
+                        • {file.name}
+                      </Typography>
+                    ))}
+                  </Box>
+                </Box>
+              )}
+            </Box>
+          ) : (
+            <>
+              <CloudUploadIcon sx={{ fontSize: 48, color: 'action.active', mb: 1 }} />
+              <Typography>
+                Glissez des fichiers ici ou cliquez pour sélectionner
+              </Typography>
+            </>
           )}
         </Box>
 
-        {selectedFiles.length > 0 && (
-          <Box sx={{ mb: 2 }}>
-            <Typography variant="subtitle1" gutterBottom>
-              Fichiers sélectionnés :
-            </Typography>
-            {selectedFiles.map((file, index) => (
-              <Box
-                key={index}
-                sx={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  p: 1,
-                  borderRadius: 1,
-                  bgcolor: 'background.default',
-                  mb: 1,
-                }}
-              >
-                <Typography noWrap sx={{ flex: 1 }}>
-                  {file.name}
-                </Typography>
-                <Button
-                  size="small"
-                  color="error"
-                  onClick={() => removeFile(index)}
-                  disabled={uploading}
-                >
-                  Supprimer
-                </Button>
-              </Box>
-            ))}
-          </Box>
-        )}
-
-        {error && (
-          <Typography color="error" sx={{ mt: 2 }}>
-            {error}
-          </Typography>
-        )}
+        {/* Sélection des tags */}
+        <Autocomplete
+          multiple
+          freeSolo
+          options={availableTags}
+          value={selectedTags}
+          onChange={(_, newValue) => setSelectedTags(newValue)}
+          renderInput={(params) => (
+            <TextField
+              {...params}
+              variant="outlined"
+              label="Tags"
+              placeholder="Ajouter des tags"
+              fullWidth
+            />
+          )}
+        />
 
         {uploading && (
           <Box sx={{ width: '100%', mt: 2 }}>
@@ -193,17 +211,15 @@ export default function UploadDialog({
           </Box>
         )}
       </DialogContent>
-
+      
       <DialogActions>
-        <Button onClick={handleClose} disabled={uploading}>
-          Annuler
-        </Button>
+        <Button onClick={handleClose}>Annuler</Button>
         <Button
           onClick={handleUpload}
           variant="contained"
           disabled={selectedFiles.length === 0 || uploading}
         >
-          {uploading ? 'Upload en cours...' : 'Uploader'}
+          Uploader {selectedFiles.length > 1 ? `(${selectedFiles.length})` : ''}
         </Button>
       </DialogActions>
     </Dialog>

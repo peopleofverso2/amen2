@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 
 interface UseVideoNodeProps {
   id: string;
@@ -19,6 +19,17 @@ export const useVideoNode = ({
   const [showButtons, setShowButtons] = useState(false);
   const [editUrl, setEditUrl] = useState(initialUrl || '');
 
+  useEffect(() => {
+    if (isPlaybackMode && (initialUrl || editUrl)) {
+      setIsPlaying(true);
+      setShowButtons(false);
+      return;
+    }
+
+    setIsPlaying(false);
+    setShowButtons(false);
+  }, [isPlaybackMode, initialUrl, editUrl]);
+
   const handleOpen = useCallback(() => {
     if (!isPlaybackMode) {
       setIsOpen(true);
@@ -34,16 +45,19 @@ export const useVideoNode = ({
       onDataChange({ videoUrl: url, ...(label && { label }) });
     }
     setEditUrl(url);
+    if (isPlaybackMode) {
+      setIsPlaying(true);
+      setShowButtons(false);
+    }
     handleClose();
-  }, [onDataChange, handleClose]);
+  }, [onDataChange, handleClose, isPlaybackMode]);
 
   const handleVideoEnd = useCallback(() => {
     setIsPlaying(false);
     setShowButtons(true);
     if (onNavigate) {
-      // En mode automatique, on navigue directement
-      // Sinon on attend que l'utilisateur clique sur un bouton
-      if (!isPlaybackMode) {
+      // Navigation automatique uniquement en mode lecture
+      if (isPlaybackMode) {
         onNavigate('next');
       }
     }

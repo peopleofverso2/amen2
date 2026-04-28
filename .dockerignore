@@ -1,0 +1,11 @@
+node_modules
+server/node_modules
+dist
+server/uploads
+.git
+.gitignore
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.local

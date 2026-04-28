@@ -1,13 +1,11 @@
+import { v4 as uuidv4 } from 'uuid';
 import { Project, ProjectMetadata } from '../types/project';
 
-const DB_NAME = 'amen_db';
-const STORE_NAME = 'projects';
-const DB_VERSION = 4; // Incrémenter la version pour forcer la mise à jour
+const PROJECTS_KEY = 'amen_projects';
+const PROJECT_DATA_PREFIX = 'amen_project_';
 
 export class ProjectService {
-  private db: IDBDatabase | null = null;
-  private static instance: ProjectService | null = null;
-  private initialized: boolean = false;
+  private static instance: ProjectService;
 
   private constructor() {}
 
@@ -18,345 +16,122 @@ export class ProjectService {
     return ProjectService.instance;
   }
 
-  private async initialize(): Promise<void> {
-    if (this.initialized) return;
-    
+  private getProjectKey(id: string): string {
+    return `${PROJECT_DATA_PREFIX}${id}`;
+  }
+
+  async listProjects(): Promise<ProjectMetadata[]> {
     try {
-      console.log('Initializing ProjectService...');
-      const db = await this.getDB();
-      
-      // Vérifier que le store existe
-      if (!db.objectStoreNames.contains(STORE_NAME)) {
-        console.error('Store not found after initialization');
-        // Forcer une réinitialisation si le store n'existe pas
-        await this.resetDatabase();
-        await this.getDB();
-      }
-      
-      this.initialized = true;
-      console.log('ProjectService initialized successfully');
+      const projectsJson = localStorage.getItem(PROJECTS_KEY);
+      if (!projectsJson) return [];
+      return JSON.parse(projectsJson);
     } catch (error) {
-      console.error('Failed to initialize ProjectService:', error);
-      throw error;
-    }
-  }
-
-  // On garde la méthode resetDatabase mais on ne l'appelle plus automatiquement
-  private async resetDatabase(): Promise<void> {
-    console.log('Resetting database...');
-    return new Promise((resolve, reject) => {
-      if (this.db) {
-        this.db.close();
-        this.db = null;
-      }
-      
-      const req = indexedDB.deleteDatabase(DB_NAME);
-      req.onsuccess = () => {
-        console.log('Database deleted successfully');
-        this.db = null;
-        this.initialized = false;
-        resolve();
-      };
-      req.onerror = () => {
-        console.error('Could not delete database:', req.error);
-        reject(req.error);
-      };
-    });
-  }
-
-  private async getDB(): Promise<IDBDatabase> {
-    if (this.db) {
-      return this.db;
-    }
-
-    return new Promise((resolve, reject) => {
-      console.log('Opening database...', DB_NAME, 'version:', DB_VERSION);
-      const request = indexedDB.open(DB_NAME, DB_VERSION);
-
-      request.onerror = () => {
-        console.error('Error opening database:', request.error);
-        reject(request.error);
-      };
-      
-      request.onsuccess = () => {
-        console.log('Database opened successfully');
-        this.db = request.result;
-        resolve(request.result);
-      };
-      
-      request.onupgradeneeded = (event) => {
-        console.log('Database upgrade needed from version:', event.oldVersion, 'to:', event.newVersion);
-        const db = (event.target as IDBOpenDBRequest).result;
-        
-        // Supprimer l'ancien store s'il existe
-        if (db.objectStoreNames.contains(STORE_NAME)) {
-          console.log('Deleting existing store:', STORE_NAME);
-          db.deleteObjectStore(STORE_NAME);
-        }
-        
-        // Créer le nouveau store avec les index
-        console.log('Creating object store:', STORE_NAME);
-        const store = db.createObjectStore(STORE_NAME, { keyPath: 'projectId' });
-        store.createIndex('updatedAt', 'updatedAt', { unique: false });
-        store.createIndex('scenarioTitle', 'scenario.scenarioTitle', { unique: false });
-        console.log('Object store created with indexes');
-      };
-    });
-  }
-
-  async createProject(title: string, description: string = ''): Promise<string> {
-    await this.initialize();
-    
-    console.log('Creating project with title:', title);
-    const projectId = crypto.randomUUID();
-    const now = new Date().toISOString();
-    
-    const newProject: Project = {
-      projectId,
-      scenario: {
-        scenarioTitle: title,
-        description,
-        steps: []
-      },
-      nodes: [],
-      edges: [],
-      createdAt: now,
-      updatedAt: now
-    };
-
-    console.log('New project object:', newProject);
-    await this.saveProject(newProject);
-    console.log('Project saved successfully');
-    return projectId;
-  }
-
-  async updateProject(projectId: string, updates: Partial<Project>): Promise<void> {
-    await this.initialize();
-    
-    console.log('Updating project:', projectId);
-    const project = await this.loadProject(projectId);
-    if (!project) {
-      throw new Error(`Project ${projectId} not found`);
-    }
-
-    const updatedProject = {
-      ...project,
-      ...updates,
-      updatedAt: new Date().toISOString()
-    };
-
-    await this.saveProject(updatedProject);
-    console.log('Project updated successfully');
-  }
-
-  async deleteProject(projectId: string): Promise<void> {
-    await this.initialize();
-    
-    try {
-      console.log('Deleting project:', projectId);
-      const db = await this.getDB();
-      return new Promise((resolve, reject) => {
-        const transaction = db.transaction(STORE_NAME, 'readwrite');
-        const store = transaction.objectStore(STORE_NAME);
-        const request = store.delete(projectId);
-
-        request.onsuccess = () => {
-          console.log('Project deleted successfully');
-          resolve();
-        };
-        request.onerror = () => reject(request.error);
-      });
-    } catch (error) {
-      console.error('Error deleting project:', error);
-      throw error;
-    }
-  }
-
-  async loadProject(projectId: string): Promise<Project | null> {
-    await this.initialize();
-    
-    try {
-      console.log('Loading project:', projectId);
-      const db = await this.getDB();
-      return new Promise((resolve, reject) => {
-        const transaction = db.transaction(STORE_NAME, 'readonly');
-        const store = transaction.objectStore(STORE_NAME);
-        const request = store.get(projectId);
-
-        request.onsuccess = () => {
-          const project = request.result;
-          console.log('Project loaded:', project);
-          resolve(project || null);
-        };
-        request.onerror = () => reject(request.error);
-      });
-    } catch (error) {
-      console.error('Error loading project:', error);
-      throw error;
-    }
-  }
-
-  async saveProject(project: Project): Promise<void> {
-    await this.initialize();
-    
-    if (!project.projectId) {
-      throw new Error('Project must have a projectId');
-    }
-
-    try {
-      console.log('Saving project:', project);
-      const db = await this.getDB();
-      return new Promise((resolve, reject) => {
-        const transaction = db.transaction(STORE_NAME, 'readwrite');
-        const store = transaction.objectStore(STORE_NAME);
-
-        // Ajouter les timestamps
-        const now = new Date().toISOString();
-        const projectToSave = {
-          ...project,
-          updatedAt: now,
-          createdAt: project.createdAt || now
-        };
-
-        const request = store.put(projectToSave);
-
-        request.onsuccess = () => {
-          console.log('Project saved successfully with ID:', request.result);
-          resolve();
-        };
-        request.onerror = () => {
-          console.error('Error saving project:', request.error);
-          reject(request.error);
-        };
-
-        transaction.oncomplete = () => {
-          console.log('Transaction completed successfully');
-        };
-
-        transaction.onerror = () => {
-          console.error('Transaction error:', transaction.error);
-        };
-      });
-    } catch (error) {
-      console.error('Error saving project:', error);
-      throw error;
-    }
-  }
-
-  async getProjectList(): Promise<ProjectMetadata[]> {
-    await this.initialize();
-    
-    try {
-      console.log('Getting project list');
-      const db = await this.getDB();
-      return new Promise((resolve, reject) => {
-        const transaction = db.transaction(STORE_NAME, 'readonly');
-        const store = transaction.objectStore(STORE_NAME);
-        const request = store.getAll();
-
-        request.onsuccess = () => {
-          const projects = request.result || [];
-          console.log('Raw projects:', projects);
-          const metadata = projects.map(project => ({
-            projectId: project.projectId,
-            scenarioTitle: project.scenario.scenarioTitle,
-            description: project.scenario.description,
-            createdAt: project.createdAt,
-            updatedAt: project.updatedAt
-          }));
-          console.log('Project metadata:', metadata);
-          resolve(metadata);
-        };
-
-        request.onerror = () => reject(request.error);
-      });
-    } catch (error) {
-      console.error('Error listing projects:', error);
+      console.error('Error loading projects:', error);
       return [];
     }
   }
 
-  async exportAllProjects(): Promise<Project[]> {
-    await this.initialize();
-    
+  async createProject(name: string, description?: string): Promise<string> {
     try {
-      console.log('Exporting all projects');
-      const db = await this.getDB();
-      return new Promise((resolve, reject) => {
-        const transaction = db.transaction(STORE_NAME, 'readonly');
-        const store = transaction.objectStore(STORE_NAME);
-        const request = store.getAll();
+      const projects = await this.listProjects();
+      const newProject: Project = {
+        id: uuidv4(),
+        name,
+        description,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        nodes: [],
+        edges: [],
+      };
 
-        request.onsuccess = () => {
-          const projects = request.result || [];
-          console.log('Exported projects:', projects.length);
-          resolve(projects);
-        };
+      // Save project data
+      localStorage.setItem(
+        this.getProjectKey(newProject.id),
+        JSON.stringify(newProject)
+      );
 
-        request.onerror = () => reject(request.error);
-      });
+      // Save project metadata
+      const projectMetadata: ProjectMetadata = {
+        id: newProject.id,
+        name: newProject.name,
+        description: newProject.description,
+        createdAt: newProject.createdAt,
+        updatedAt: newProject.updatedAt,
+      };
+      projects.push(projectMetadata);
+      localStorage.setItem(PROJECTS_KEY, JSON.stringify(projects));
+
+      return newProject.id;
     } catch (error) {
-      console.error('Error exporting projects:', error);
-      throw error;
+      console.error('Error creating project:', error);
+      throw new Error('Failed to create project');
     }
   }
 
-  async importProjects(projects: Project[]): Promise<void> {
-    await this.initialize();
-    
+  async loadProject(id: string): Promise<Project> {
     try {
-      console.log('Importing projects:', projects.length);
-      const db = await this.getDB();
-      
-      return new Promise((resolve, reject) => {
-        const transaction = db.transaction(STORE_NAME, 'readwrite');
-        const store = transaction.objectStore(STORE_NAME);
-
-        // Importer chaque projet
-        projects.forEach(project => {
-          const request = store.put(project);
-          request.onerror = () => {
-            console.error('Error importing project:', project.projectId, request.error);
-          };
-        });
-
-        transaction.oncomplete = () => {
-          console.log('All projects imported successfully');
-          resolve();
-        };
-
-        transaction.onerror = () => {
-          console.error('Transaction error:', transaction.error);
-          reject(transaction.error);
-        };
-      });
+      const projectJson = localStorage.getItem(this.getProjectKey(id));
+      if (!projectJson) throw new Error('Project not found');
+      return JSON.parse(projectJson);
     } catch (error) {
-      console.error('Error importing projects:', error);
-      throw error;
+      console.error('Error loading project:', error);
+      throw new Error('Failed to load project');
     }
   }
 
-  async getProject(projectId: string): Promise<Project> {
-    await this.initialize();
-    const db = await this.getDB();
-    
-    return new Promise((resolve, reject) => {
-      const transaction = db.transaction([STORE_NAME], 'readonly');
-      const store = transaction.objectStore(STORE_NAME);
-      const request = store.get(projectId);
-      
-      request.onerror = () => {
-        reject(new Error('Error getting project'));
-      };
-      
-      request.onsuccess = () => {
-        const project = request.result;
-        if (!project) {
-          reject(new Error('Project not found'));
-        } else {
-          resolve(project);
-        }
-      };
-    });
+  async saveProject(project: Project): Promise<void> {
+    try {
+      project.updatedAt = new Date().toISOString();
+
+      // Save project data
+      localStorage.setItem(
+        this.getProjectKey(project.id),
+        JSON.stringify(project)
+      );
+
+      // Update project metadata
+      const projects = await this.listProjects();
+      const index = projects.findIndex((p) => p.id === project.id);
+      if (index !== -1) {
+        projects[index] = {
+          id: project.id,
+          name: project.name,
+          description: project.description,
+          createdAt: project.createdAt,
+          updatedAt: project.updatedAt,
+          thumbnail: project.thumbnail,
+        };
+        localStorage.setItem(PROJECTS_KEY, JSON.stringify(projects));
+      }
+    } catch (error) {
+      console.error('Error saving project:', error);
+      throw new Error('Failed to save project');
+    }
+  }
+
+  async deleteProject(id: string): Promise<void> {
+    try {
+      // Remove project data
+      localStorage.removeItem(this.getProjectKey(id));
+
+      // Remove project metadata
+      const projects = await this.listProjects();
+      const filteredProjects = projects.filter((p) => p.id !== id);
+      localStorage.setItem(PROJECTS_KEY, JSON.stringify(filteredProjects));
+    } catch (error) {
+      console.error('Error deleting project:', error);
+      throw new Error('Failed to delete project');
+    }
+  }
+
+  async updateProjectName(id: string, name: string): Promise<void> {
+    try {
+      const project = await this.loadProject(id);
+      project.name = name;
+      await this.saveProject(project);
+    } catch (error) {
+      console.error('Error updating project name:', error);
+      throw new Error('Failed to update project name');
+    }
   }
 }

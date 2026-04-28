@@ -1,0 +1,30 @@
+.interaction-button {
+  transition: transform 0.2s ease-in-out;
+  cursor: pointer;
+}
+
+.interaction-button:hover {
+  transform: scale(1.05);
+}
+
+.interaction-button-container {
+  position: absolute;
+  user-select: none;
+}
+
+.interaction-button-container.editing {
+  cursor: move;
+}
+
+.interaction-button-controls {
+  opacity: 0;
+  transition: opacity 0.2s ease-in-out;
+}
+
+.interaction-button-container:hover .interaction-button-controls {
+  opacity: 1;
+}
+
+.chrome-picker {
+  box-shadow: none !important;
+}

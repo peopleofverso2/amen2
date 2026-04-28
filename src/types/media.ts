@@ -15,7 +15,6 @@ export interface MediaMetadata {
 }
 
 export interface MediaFile {
-  id: string;
   metadata: MediaMetadata;
   url: string; // URL locale ou distante
   thumbnailUrl?: string; // URL de la vignette pour les vidéos

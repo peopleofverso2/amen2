@@ -111,3 +111,23 @@ Distribué sous la licence MIT. Voir `LICENSE` pour plus d'informations.
 People of Verso 2 - [@peopleofverso2](https://github.com/peopleofverso2)
 
 Lien du projet : [https://github.com/peopleofverso2/amen](https://github.com/peopleofverso2/amen)
+
+## 🎬 Assistant YouTube (Playwright)
+
+Pour aider la configuration des end screens YouTube Studio en série (mode assisté):
+
+1. Depuis l'UI CMS, ouvre le dernier export YouTube et télécharge le plan Playwright JSON.
+2. Lance ensuite:
+
+```bash
+node scripts/youtube-endscreen-assistant.mjs --plan /chemin/vers/plan.json
+```
+
+Optionnel:
+
+```bash
+node scripts/youtube-endscreen-assistant.mjs --plan /chemin/vers/plan.json --profile ./.playwright-youtube-profile
+```
+
+Le script ouvre YouTube Studio, affiche un panneau d'aide avec miniatures cliquables des vidéos cibles, et te fait avancer source par source.
+Les clics finaux dans YouTube Studio restent manuels.

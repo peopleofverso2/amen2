@@ -1,68 +1,23 @@
-import { Node, Edge } from 'reactflow';
-import { CustomEdge } from './nodes';
-import { ButtonAssetPlacement, ButtonAssetStyle } from './buttonAsset';
-
-export interface Media {
-  id: string;
-  type: 'image' | 'video';
-  url: string;
-  title?: string;
-  description?: string;
-}
-
-export interface Choice {
-  id: string;
-  text: string;
-  nextStepId?: string;
-  style?: ButtonAssetStyle;
-  placement?: ButtonAssetPlacement;
-}
-
-export interface Step {
-  id: string;
-  title: string;
-  description?: string;
-  media?: Media[];
-  choices: Choice[];
-}
-
-export interface Scenario {
-  scenarioTitle: string;
-  description: string;
-  steps: Step[];
-}
-
-export interface NodeData {
-  stepId: string;
-  content: {
-    title: string;
-    text: string;
-    media: Media[];
-  };
-  choices: Choice[];
-  onDataChange?: (nodeId: string, data: Partial<NodeData>) => void;
-  onVideoEnd?: (nodeId: string) => void;
-  onChoiceSelect?: (nodeId: string, choice: Choice) => void;
-  isPlaybackMode?: boolean;
-  isCurrentNode?: boolean;
-  isPlaying?: boolean;
-}
+import { CustomNode, CustomEdge } from './nodes';
 
 export interface Project {
-  projectId: string;
-  scenario: Scenario;
-  nodes: Node<NodeData>[];
-  edges: Edge<CustomEdge>[];
+  id: string;
+  name: string;
+  description?: string;
   createdAt: string;
   updatedAt: string;
+  nodes: CustomNode[];
+  edges: CustomEdge[];
+  thumbnail?: string;
 }
 
 export interface ProjectMetadata {
-  projectId: string;
-  scenarioTitle: string;
-  description: string;
+  id: string;
+  name: string;
+  description?: string;
   createdAt: string;
   updatedAt: string;
+  thumbnail?: string;
 }
 
 export interface ProjectLibraryState {
@@ -73,10 +28,10 @@ export interface ProjectLibraryState {
 }
 
 export interface ProjectActions {
-  createProject: (scenarioTitle: string, description?: string) => Promise<string>;
-  updateProject: (projectId: string, updates: Partial<Project>) => Promise<void>;
-  deleteProject: (projectId: string) => Promise<void>;
-  loadProject: (projectId: string) => Promise<Project>;
+  createProject: (name: string, description?: string) => Promise<string>;
+  updateProject: (id: string, updates: Partial<Project>) => Promise<void>;
+  deleteProject: (id: string) => Promise<void>;
+  loadProject: (id: string) => Promise<Project>;
   saveProject: (project: Project) => Promise<void>;
-  updateProjectName: (projectId: string, scenarioTitle: string) => Promise<void>;
+  updateProjectName: (id: string, name: string) => Promise<void>;
 }

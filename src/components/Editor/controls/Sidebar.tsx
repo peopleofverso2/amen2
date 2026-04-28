@@ -1,177 +1,152 @@
-import React, { DragEvent } from 'react';
-import {
-  Box,
-  IconButton,
-  Paper,
-  Stack,
-  Tooltip,
-  Typography,
-  styled,
-  alpha,
-} from '@mui/material';
+import React from 'react';
+import { Box, Typography, Button, Divider } from '@mui/material';
 import {
   PlayArrow as PlayIcon,
-  Stop as StopIcon,
   Save as SaveIcon,
-  ArrowBack as ArrowBackIcon,
+  FolderOpen as OpenIcon,
+  YouTube as YouTubeIcon,
   VideoCall as VideoIcon,
+  SmartButton as ButtonIcon,
+  AccountTree as GroupIcon,
+  AutoAwesome as WorkflowIcon,
 } from '@mui/icons-material';
 
-const SidebarContainer = styled(Paper)(({ theme }) => ({
-  position: 'absolute',
-  top: theme.spacing(2),
-  right: theme.spacing(2),
-  padding: theme.spacing(3),
-  display: 'flex',
-  flexDirection: 'column',
-  gap: theme.spacing(3),
-  backgroundColor: alpha(theme.palette.background.paper, 0.95),
-  backdropFilter: 'blur(8px)',
-  borderRadius: theme.shape.borderRadius * 2,
-  boxShadow: theme.shadows[8],
-  width: '280px',
-  zIndex: 1000,
-  border: `1px solid ${alpha(theme.palette.divider, 0.1)}`,
-}));
-
-const ActionButton = styled(IconButton)(({ theme }) => ({
-  backgroundColor: alpha(theme.palette.primary.main, 0.1),
-  '&:hover': {
-    backgroundColor: alpha(theme.palette.primary.main, 0.2),
-  },
-}));
-
 interface SidebarProps {
-  onSave: () => void;
-  isSaving: boolean;
-  onBackToLibrary?: () => void;
-  isPlaybackMode: boolean;
-  onStartPlayback: () => void;
-  onStopPlayback: () => void;
+  onSave?: () => void;
+  onOpen?: () => void;
+  onExport?: () => void;
+  isExporting?: boolean;
+  isPlayMode?: boolean;
+  onPlayModeToggle?: () => void;
 }
 
 const Sidebar: React.FC<SidebarProps> = ({
   onSave,
-  isSaving,
-  onBackToLibrary,
-  isPlaybackMode,
-  onStartPlayback,
-  onStopPlayback,
+  onOpen,
+  onExport,
+  isExporting,
+  isPlayMode,
+  onPlayModeToggle,
 }) => {
-  const onDragStart = (event: DragEvent, nodeType: string) => {
+  const onDragStart = (event: React.DragEvent, nodeType: string) => {
     event.dataTransfer.setData('application/reactflow', nodeType);
     event.dataTransfer.effectAllowed = 'move';
   };
 
   return (
-    <SidebarContainer elevation={3}>
-      <Stack direction="row" spacing={2} alignItems="center">
-        {onBackToLibrary && (
-          <Tooltip title="Back to Library" placement="bottom">
-            <ActionButton onClick={onBackToLibrary} size="small">
-              <ArrowBackIcon />
-            </ActionButton>
-          </Tooltip>
-        )}
-        <Typography 
-          variant="h6" 
-          component="div" 
-          sx={{ 
-            flexGrow: 1,
-            fontWeight: 600,
-            color: 'text.primary',
-          }}
-        >
-          Editor
-        </Typography>
-        <Tooltip title={isPlaybackMode ? 'Stop Playback' : 'Start Playback'} placement="bottom">
-          <ActionButton
-            onClick={isPlaybackMode ? onStopPlayback : onStartPlayback}
-            color={isPlaybackMode ? 'error' : 'primary'}
-            size="small"
-          >
-            {isPlaybackMode ? <StopIcon /> : <PlayIcon />}
-          </ActionButton>
-        </Tooltip>
-        <Tooltip title="Save Changes" placement="bottom">
-          <ActionButton
-            onClick={onSave}
-            disabled={isSaving}
-            color="primary"
-            size="small"
-          >
-            <SaveIcon />
-          </ActionButton>
-        </Tooltip>
-      </Stack>
+    <Box
+      sx={{
+        width: 240,
+        height: 'calc(100vh - 64px)',
+        backgroundColor: 'background.paper',
+        borderRight: 1,
+        borderColor: 'divider',
+        p: 2,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 2,
+        overflow: 'auto',
+        position: 'relative',
+        zIndex: 2, // S'assurer que la sidebar est au-dessus de ReactFlow
+      }}
+    >
+      <Typography variant="h6" gutterBottom>
+        Contrôles
+      </Typography>
 
-      <Box>
-        <Typography 
-          variant="subtitle1" 
-          gutterBottom 
-          sx={{ 
-            fontWeight: 600,
-            color: 'text.primary',
-            mb: 2,
-          }}
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+        <Button
+          variant="contained"
+          startIcon={<SaveIcon />}
+          onClick={onSave}
+          fullWidth
         >
-          Available Nodes
-        </Typography>
-        <Box
-          sx={{
-            p: 2,
-            border: '1px dashed grey',
-            borderRadius: 1,
-            bgcolor: 'background.default',
-            cursor: 'grab',
-            mb: 2,
-          }}
-          onDragStart={(event: DragEvent) => onDragStart(event, 'videoNode2')}
+          Sauvegarder
+        </Button>
+        <Button
+          variant="outlined"
+          startIcon={<OpenIcon />}
+          onClick={onOpen}
+          fullWidth
+        >
+          Ouvrir
+        </Button>
+        <Button
+          variant="outlined"
+          startIcon={<PlayIcon />}
+          onClick={onPlayModeToggle}
+          color={isPlayMode ? 'secondary' : 'primary'}
+          fullWidth
+        >
+          {isPlayMode ? 'Mode édition' : 'Mode lecture'}
+        </Button>
+        <Button
+          variant="outlined"
+          startIcon={<YouTubeIcon />}
+          onClick={onExport}
+          disabled={Boolean(isExporting)}
+          color="error"
+          fullWidth
+        >
+          {isExporting ? 'Upload YouTube...' : 'Exporter YouTube'}
+        </Button>
+      </Box>
+
+      <Divider sx={{ my: 2 }} />
+
+      <Typography variant="subtitle1" gutterBottom>
+        Éléments
+      </Typography>
+
+      <Box
+        sx={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 1,
+        }}
+      >
+        <Button
+          variant="outlined"
+          startIcon={<VideoIcon />}
+          onDragStart={(event) => onDragStart(event, 'video')}
           draggable
+          fullWidth
         >
-          <VideoIcon 
-            sx={{ 
-              color: 'primary.main',
-              fontSize: 28,
-            }} 
-          />
-          <Box>
-            <Typography 
-              variant="subtitle2" 
-              sx={{ 
-                fontWeight: 600,
-                color: 'text.primary',
-              }}
-            >
-              Video Node
-            </Typography>
-            <Typography 
-              variant="caption" 
-              sx={{ 
-                color: 'text.secondary',
-                display: 'block',
-              }}
-            >
-              Drag to add a video element
-            </Typography>
-          </Box>
-        </Box>
-      </Box>
-
-      <Box sx={{ mt: 'auto' }}>
-        <Typography 
-          variant="caption" 
-          sx={{ 
-            color: 'text.secondary',
-            display: 'block',
-            textAlign: 'center',
-            fontStyle: 'italic',
+          Vidéo
+        </Button>
+        <Button
+          variant="outlined"
+          startIcon={<ButtonIcon />}
+          onDragStart={(event) => onDragStart(event, 'button')}
+          draggable
+          fullWidth
+        >
+          Bouton
+        </Button>
+        <Button
+          variant="outlined"
+          startIcon={<GroupIcon />}
+          onDragStart={(event) => onDragStart(event, 'group')}
+          draggable
+          fullWidth
+        >
+          Groupe
+        </Button>
+        <Button
+          variant="outlined"
+          startIcon={<WorkflowIcon />}
+          onDragStart={(event) => onDragStart(event, 'workflow')}
+          draggable
+          fullWidth
+          sx={{
+            borderColor: 'rgba(110, 231, 183, 0.35)',
+            color: '#9ff5d8',
           }}
         >
-          Drag nodes to the canvas to build your scenario
-        </Typography>
+          Workflow IA
+        </Button>
       </Box>
-    </SidebarContainer>
+    </Box>
   );
 };
 

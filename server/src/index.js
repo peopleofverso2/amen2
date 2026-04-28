@@ -3,6 +3,7 @@ const cors = require('cors');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const { randomUUID } = require('crypto');
 const ffmpeg = require('fluent-ffmpeg');
 const ffmpegPath = require('@ffmpeg-installer/ffmpeg').path;
 ffmpeg.setFfmpegPath(ffmpegPath);
@@ -74,6 +75,21 @@ app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 // Base de données en mémoire pour les métadonnées
 let mediaFiles = [];
+
+// Stockage persistant des scénarios publiés
+const publishedDir = path.join(__dirname, '../published');
+
+const ensurePublishedDir = () => {
+  if (!fs.existsSync(publishedDir)) {
+    fs.mkdirSync(publishedDir, { recursive: true });
+  }
+};
+
+const publishedFilePath = (id) => path.join(publishedDir, `${id}.json`);
+
+const isValidPublishPayload = (value) => {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+};
 
 // Routes
 app.post('/api/media/upload', upload.single('file'), async (req, res) => {
@@ -215,6 +231,135 @@ app.patch('/api/media/:id', (req, res) => {
     url: `http://localhost:${port}/uploads/${file.filename}`,
     thumbnailUrl: `http://localhost:${port}/uploads/thumbnails/${file.thumbnailFilename}`
   });
+});
+
+app.get('/api/published/:id', (req, res) => {
+  try {
+    ensurePublishedDir();
+    const { id } = req.params;
+    const filePath = publishedFilePath(id);
+
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({
+        error: 'Publication non trouvée',
+        id,
+      });
+    }
+
+    const raw = fs.readFileSync(filePath, 'utf8');
+    const parsed = JSON.parse(raw);
+    return res.json(parsed);
+  } catch (error) {
+    console.error('Error loading published scenario:', error);
+    return res.status(500).json({ error: 'Erreur lors du chargement de la publication' });
+  }
+});
+
+app.post('/api/published', (req, res) => {
+  try {
+    ensurePublishedDir();
+    const payload = req.body?.payload ?? req.body;
+
+    if (!isValidPublishPayload(payload)) {
+      return res.status(400).json({
+        error: 'Payload de publication invalide',
+      });
+    }
+
+    const id = req.body?.id || randomUUID();
+    const now = new Date().toISOString();
+    const filePath = publishedFilePath(id);
+
+    const record = {
+      id,
+      createdAt: now,
+      updatedAt: now,
+      payload,
+    };
+
+    fs.writeFileSync(filePath, JSON.stringify(record, null, 2), 'utf8');
+
+    return res.status(201).json({
+      id,
+      createdAt: now,
+      updatedAt: now,
+      url: `/api/published/${id}`,
+      record,
+    });
+  } catch (error) {
+    console.error('Error creating published scenario:', error);
+    return res.status(500).json({ error: 'Erreur lors de la publication du scénario' });
+  }
+});
+
+app.put('/api/published/:id', (req, res) => {
+  try {
+    ensurePublishedDir();
+    const { id } = req.params;
+    const payload = req.body?.payload ?? req.body;
+
+    if (!isValidPublishPayload(payload)) {
+      return res.status(400).json({
+        error: 'Payload de publication invalide',
+      });
+    }
+
+    const filePath = publishedFilePath(id);
+    const now = new Date().toISOString();
+
+    let createdAt = now;
+    if (fs.existsSync(filePath)) {
+      try {
+        const previous = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+        if (previous?.createdAt) {
+          createdAt = previous.createdAt;
+        }
+      } catch (readError) {
+        console.warn(`Could not parse previous publication ${id}:`, readError);
+      }
+    }
+
+    const record = {
+      id,
+      createdAt,
+      updatedAt: now,
+      payload,
+    };
+
+    fs.writeFileSync(filePath, JSON.stringify(record, null, 2), 'utf8');
+
+    return res.json({
+      id,
+      createdAt,
+      updatedAt: now,
+      url: `/api/published/${id}`,
+      record,
+    });
+  } catch (error) {
+    console.error('Error updating published scenario:', error);
+    return res.status(500).json({ error: 'Erreur lors de la mise à jour de la publication' });
+  }
+});
+
+app.delete('/api/published/:id', (req, res) => {
+  try {
+    ensurePublishedDir();
+    const { id } = req.params;
+    const filePath = publishedFilePath(id);
+
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({
+        error: 'Publication non trouvée',
+        id,
+      });
+    }
+
+    fs.unlinkSync(filePath);
+    return res.json({ message: 'Publication supprimée', id });
+  } catch (error) {
+    console.error('Error deleting published scenario:', error);
+    return res.status(500).json({ error: 'Erreur lors de la suppression de la publication' });
+  }
 });
 
 // Middleware de gestion d'erreurs

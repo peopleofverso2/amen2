@@ -11,28 +11,16 @@ import {
   TextField,
   Alert,
 } from '@mui/material';
-import {
-  Delete as DeleteIcon,
-  Edit as EditIcon,
-  PlayArrow as PlayArrowIcon,
-  Upload as UploadIcon,
-  Download as DownloadIcon,
-  CloudDownload as CloudDownloadIcon,
-  GetApp as GetAppIcon,
-  OpenInNew as OpenInNewIcon,
-} from '@mui/icons-material';
 import { ProjectService } from '../../services/projectService';
 import { ProjectMetadata } from '../../types/project';
 import ProjectList from '../ProjectList/ProjectList';
-import FileUploadIcon from '@mui/icons-material/FileUpload';
-import FileDownloadIcon from '@mui/icons-material/FileDownload';
 
 interface ProjectLibraryProps {
   onProjectSelect: (projectId: string) => void;
-  onProjectDelete: (projectId: string) => void;
+  onProjectDelete?: (projectId: string) => void;
 }
 
-const ProjectLibrary: React.FC<ProjectLibraryProps> = ({ onProjectSelect, onProjectDelete }) => {
+const ProjectLibrary: React.FC<ProjectLibraryProps> = ({ onProjectSelect }) => {
   const [projects, setProjects] = useState<ProjectMetadata[]>([]);
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [newProjectTitle, setNewProjectTitle] = useState('');

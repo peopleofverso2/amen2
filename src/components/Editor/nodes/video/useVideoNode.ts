@@ -4,7 +4,7 @@ interface UseVideoNodeProps {
   id: string;
   initialUrl: string;
   isPlaybackMode?: boolean;
-  onDataChange?: (data: any) => void;
+  onDataChange?: (data: Record<string, unknown>) => void;
   onNavigate?: (targetNodeId: string) => void;
 }
 

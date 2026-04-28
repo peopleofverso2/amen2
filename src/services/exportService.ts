@@ -1,6 +1,5 @@
 import { Node } from 'reactflow';
 import { Project } from '../types/project';
-import { VideoNodeData } from '../types/nodes';
 import { LocalStorageAdapter } from './storage/LocalStorageAdapter';
 
 interface ExportData {
@@ -24,7 +23,7 @@ export class ExportService {
   private readonly storageAdapter = LocalStorageAdapter.getInstance();
 
   async exportProject(project: Project, includeVideos: boolean = false): Promise<Blob> {
-    console.log('Starting project export:', project.name, '(with videos)');
+    console.log('Starting project export:', project.scenario.scenarioTitle, '(with videos)');
     try {
       const resources = includeVideos ? await this.collectResources(project.nodes) : [];
       const exportData: ExportData = {

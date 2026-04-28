@@ -1,9 +1,8 @@
-import React, { useState, useCallback, useEffect, useRef, DragEvent, memo, useMemo } from 'react';
+import { useState, useCallback, useEffect, useRef, DragEvent, useMemo } from 'react';
 import ReactFlow, {
   Node,
   Edge,
   Connection,
-  addEdge,
   Background,
   Controls,
   MiniMap,
@@ -16,15 +15,13 @@ import ReactFlow, {
   applyEdgeChanges,
   ReactFlowProvider,
 } from 'reactflow';
-import { Box, Button } from '@mui/material';
-import PlayArrowIcon from '@mui/icons-material/PlayArrow';
+import { Box } from '@mui/material';
 import VideoNode2 from './nodes/VideoNode2';
 import ChoiceEdge from './edges/ChoiceEdge';
 import { ProjectService } from '../../services/projectService';
-import { Project } from '../../types/project';
+import { Choice, Project } from '../../types/project';
 import Sidebar from './controls/Sidebar';
 import 'reactflow/dist/style.css';
-import debounce from 'lodash.debounce';
 
 const getId = (): string => {
   return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -34,6 +31,10 @@ interface ScenarioEditorProps {
   projectId?: string;
   onBackToLibrary?: () => void;
 }
+
+type NodeDataUpdate = Record<string, unknown> & {
+  nextNodeId?: string;
+};
 
 function ScenarioEditorContent({ projectId, onBackToLibrary }: ScenarioEditorProps) {
   const [nodes, setNodes] = useState<Node[]>([]);
@@ -76,11 +77,14 @@ function ScenarioEditorContent({ projectId, onBackToLibrary }: ScenarioEditorPro
   }, [isPlaybackMode, edges, setNodes]);
 
   // Gérer le choix d'un bouton
-  const handleChoiceSelect = useCallback((nodeId: string, choice: any) => {
+  const handleChoiceSelect = useCallback((nodeId: string, choice: Choice) => {
     if (!isPlaybackMode) return;
 
-    const outgoingEdges = edges.filter(edge => 
-      edge.source === nodeId && edge.sourceHandle === `button-handle-${choice.id}`
+    const outgoingEdges = edges.filter(
+      (edge) =>
+        edge.source === nodeId &&
+        (edge.sourceHandle === `button-handle-${choice.id}` ||
+          edge.sourceHandle === `choice-${choice.id}`)
     );
 
     if (outgoingEdges.length === 1) {
@@ -98,14 +102,16 @@ function ScenarioEditorContent({ projectId, onBackToLibrary }: ScenarioEditorPro
   }, [isPlaybackMode, edges, setNodes]);
 
   const getConnectedNodeId = useCallback((nodeId: string, buttonId: string) => {
-    const edge = edges.find(e => 
-      e.source === nodeId && 
-      e.sourceHandle === `button-handle-${buttonId}`
+    const edge = edges.find(
+      (currentEdge) =>
+        currentEdge.source === nodeId &&
+        (currentEdge.sourceHandle === `button-handle-${buttonId}` ||
+          currentEdge.sourceHandle === `choice-${buttonId}`)
     );
     return edge ? edge.target : null;
   }, [edges]);
 
-  const handleNodeDataChange = useCallback((nodeId: string, newData: any) => {
+  const handleNodeDataChange = useCallback((nodeId: string, newData: NodeDataUpdate) => {
     // Si on a un nextNodeId en mode lecture, activer le nœud suivant
     if (newData.nextNodeId && isPlaybackMode) {
       setActiveNodeId(newData.nextNodeId);
@@ -148,18 +154,23 @@ function ScenarioEditorContent({ projectId, onBackToLibrary }: ScenarioEditorPro
     const sourceHandle = connection.sourceHandle;
     let choiceId = null;
 
-    if (sourceHandle && sourceHandle.startsWith('button-handle-')) {
+    if (sourceHandle?.startsWith('button-handle-')) {
       choiceId = sourceHandle.replace('button-handle-', '');
+    } else if (sourceHandle?.startsWith('choice-')) {
+      choiceId = sourceHandle.replace('choice-', '');
     }
 
     // Créer un lien de choix avec le texte du bouton
     const edge: Edge = {
-      ...connection,
-      id: `choice-${connection.source}-${connection.target}-${choiceId}`,
+      id: `choice-${connection.source}-${connection.target}-${choiceId ?? 'direct'}`,
+      source: connection.source,
+      target: connection.target,
+      sourceHandle: connection.sourceHandle,
+      targetHandle: connection.targetHandle,
       type: 'choice',
       data: {
         choiceId,
-        text: sourceNode?.data.choices?.find((c: any) => c.id === choiceId)?.text || ''
+        text: sourceNode?.data.choices?.find((choice: Choice) => choice.id === choiceId)?.text || ''
       },
       style: { strokeWidth: 2 }
     };
@@ -167,7 +178,7 @@ function ScenarioEditorContent({ projectId, onBackToLibrary }: ScenarioEditorPro
     // Mettre à jour les choix du nœud source
     setNodes(nds => nds.map(node => {
       if (node.id === connection.source) {
-        const updatedChoices = (node.data.choices || []).map((choice: any) => {
+        const updatedChoices = (node.data.choices || []).map((choice: Choice) => {
           if (choice.id === choiceId) {
             return {
               ...choice,
@@ -197,7 +208,7 @@ function ScenarioEditorContent({ projectId, onBackToLibrary }: ScenarioEditorPro
       if (edge.data?.choiceId) {
         setNodes(nds => nds.map(node => {
           if (node.id === edge.source) {
-            const updatedChoices = (node.data.choices || []).map((choice: any) => {
+            const updatedChoices = (node.data.choices || []).map((choice: Choice) => {
               if (choice.id === edge.data.choiceId) {
                 return {
                   ...choice,
@@ -300,16 +311,18 @@ function ScenarioEditorContent({ projectId, onBackToLibrary }: ScenarioEditorPro
         y: event.clientY,
       });
 
+      const newNodeId = getId();
       const newNode: Node = {
-        id: getId(),
+        id: newNodeId,
         type,
         position,
         data: { 
           label: `${type} node`,
           onDataChange: handleNodeDataChange,
           mediaId: undefined,
+          choices: [],
           isPlaybackMode: false,
-          getConnectedNodeId: (buttonId: string) => getConnectedNodeId(getId(), buttonId),
+          getConnectedNodeId: (buttonId: string) => getConnectedNodeId(newNodeId, buttonId),
         },
       };
 

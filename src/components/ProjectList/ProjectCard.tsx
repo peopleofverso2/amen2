@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import {
   Card,
   CardContent,
@@ -9,12 +9,10 @@ import {
   Tooltip,
 } from '@mui/material';
 import {
-  PlayArrow as PlayArrowIcon,
   Edit as EditIcon,
   Delete as DeleteIcon,
 } from '@mui/icons-material';
 import { ProjectMetadata } from '../../types/project';
-import { ProjectService } from '../../services/projectService';
 
 interface ProjectCardProps {
   project: ProjectMetadata;

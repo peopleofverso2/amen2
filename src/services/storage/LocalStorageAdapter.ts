@@ -2,7 +2,6 @@ import { MediaStorageAdapter, MediaFile, MediaMetadata, MediaFilter } from '../.
 import { openDB, IDBPDatabase, deleteDB } from 'idb';
 
 export class LocalStorageAdapter implements MediaStorageAdapter {
-  private readonly STORAGE_KEY = 'media_library';
   private static instance: LocalStorageAdapter;
   private dbPromise: Promise<IDBPDatabase> | null = null;
   private static readonly DB_NAME = 'AmenMediaLibrary';
@@ -52,10 +51,11 @@ export class LocalStorageAdapter implements MediaStorageAdapter {
     if (!this.dbPromise) {
       console.log('Opening database...');
       this.dbPromise = openDB(LocalStorageAdapter.DB_NAME, LocalStorageAdapter.DB_VERSION, {
-        upgrade(db, oldVersion, newVersion, transaction) {
-          console.log(`Upgrading database from version ${oldVersion} to ${newVersion}`);
+        upgrade(db, oldVersion, newVersion) {
+          const targetVersion = newVersion ?? LocalStorageAdapter.DB_VERSION;
+          console.log(`Upgrading database from version ${oldVersion} to ${targetVersion}`);
           
-          if (oldVersion < newVersion) {
+          if (oldVersion < targetVersion) {
             const storeNames = [...db.objectStoreNames];
             storeNames.forEach(storeName => {
               db.deleteObjectStore(storeName);

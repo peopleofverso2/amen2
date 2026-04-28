@@ -26,3 +26,6 @@ dist-ssr
 # Backups
 backups/
 *.zip
+
+# Runtime publication snapshots
+server/published/*.json

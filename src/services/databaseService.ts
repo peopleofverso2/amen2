@@ -47,7 +47,7 @@ export class DatabaseService {
     return this.dbInitPromise;
   }
 
-  private openDatabase(resolve: () => void, reject: (error: any) => void): void {
+  private openDatabase(resolve: () => void, reject: (error: unknown) => void): void {
     const request = indexedDB.open(DatabaseService.DB_NAME, DatabaseService.DB_VERSION);
 
     request.onerror = () => {

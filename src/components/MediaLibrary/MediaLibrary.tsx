@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react';
 import {
   Box,
   Grid,
-  Paper,
   TextField,
   Button,
   Autocomplete,
@@ -14,12 +13,12 @@ import {
   CloudUpload as CloudUploadIcon,
   Check as CheckIcon,
 } from '@mui/icons-material';
-import { MediaFile, MediaFilter } from '../../types/media';
+import { MediaFile } from '../../types/media';
 import { MediaLibraryService } from '../../services/MediaLibraryService';
 import MediaCard from './MediaCard';
 import UploadDialog from './UploadDialog';
 
-const mediaLibrary = new MediaLibraryService();
+const mediaLibrary = MediaLibraryService.getInstance();
 
 interface MediaLibraryProps {
   onSelect?: (mediaFiles: MediaFile[]) => void;
@@ -33,7 +32,6 @@ export default function MediaLibrary({
   acceptedTypes = []
 }: MediaLibraryProps) {
   const [media, setMedia] = useState<MediaFile[]>([]);
-  const [filter, setFilter] = useState<MediaFilter>({});
   const [search, setSearch] = useState('');
   const [availableTags, setAvailableTags] = useState<string[]>([]);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
@@ -51,12 +49,11 @@ export default function MediaLibrary({
 
   useEffect(() => {
     loadMedia();
-  }, [filter, search, selectedTags]);
+  }, [search, selectedTags, acceptedTypes]);
 
   const loadMedia = async () => {
     try {
       const mediaFiles = await mediaLibrary.listMedia({
-        ...filter,
         search,
         tags: selectedTags,
       });
@@ -88,74 +85,6 @@ export default function MediaLibrary({
         severity: 'error'
       });
     }
-  };
-
-  const handleUpload = async (file: File, tags: string[]) => {
-    try {
-      await mediaLibrary.uploadMedia(file, { tags });
-      loadMedia();
-      loadTags();
-      setUploadOpen(false);
-      showSuccess('Média uploadé avec succès');
-    } catch (error) {
-      console.error('Erreur lors de l\'upload:', error);
-      showError('Erreur lors de l\'upload du média');
-    }
-  };
-
-  const handleDelete = async (mediaFile: MediaFile) => {
-    try {
-      await mediaLibrary.deleteMedia(mediaFile.metadata.id);
-      setSelectedMedia(prev => {
-        const next = new Set(prev);
-        next.delete(mediaFile.metadata.id);
-        return next;
-      });
-      loadMedia();
-      loadTags();
-      showSuccess('Média supprimé avec succès');
-    } catch (error) {
-      console.error('Erreur lors de la suppression:', error);
-      showError('Erreur lors de la suppression du média');
-    }
-  };
-
-  const handleSelect = (mediaFile: MediaFile) => {
-    setSelectedMedia(prev => {
-      const next = new Set(prev);
-      if (next.has(mediaFile.metadata.id)) {
-        next.delete(mediaFile.metadata.id);
-      } else {
-        if (!multiSelect) {
-          next.clear();
-        }
-        next.add(mediaFile.metadata.id);
-      }
-      return next;
-    });
-  };
-
-  const handleConfirmSelection = () => {
-    if (onSelect) {
-      const selectedFiles = media.filter(m => selectedMedia.has(m.metadata.id));
-      onSelect(selectedFiles);
-    }
-  };
-
-  const showSuccess = (message: string) => {
-    setSnackbar({
-      open: true,
-      message,
-      severity: 'success'
-    });
-  };
-
-  const showError = (message: string) => {
-    setSnackbar({
-      open: true,
-      message,
-      severity: 'error'
-    });
   };
 
   return (

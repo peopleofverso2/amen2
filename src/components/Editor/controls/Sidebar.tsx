@@ -1,7 +1,6 @@
 import React, { DragEvent } from 'react';
 import {
   Box,
-  Button,
   IconButton,
   Paper,
   Stack,
@@ -33,29 +32,6 @@ const SidebarContainer = styled(Paper)(({ theme }) => ({
   width: '280px',
   zIndex: 1000,
   border: `1px solid ${alpha(theme.palette.divider, 0.1)}`,
-}));
-
-const DraggableNode = styled(Paper)(({ theme }) => ({
-  padding: theme.spacing(2),
-  marginBottom: theme.spacing(1),
-  display: 'flex',
-  alignItems: 'center',
-  gap: theme.spacing(2),
-  cursor: 'grab',
-  backgroundColor: theme.palette.background.paper,
-  borderRadius: theme.shape.borderRadius,
-  transition: theme.transitions.create(['transform', 'box-shadow', 'background-color'], {
-    duration: theme.transitions.duration.shorter,
-  }),
-  '&:hover': {
-    backgroundColor: alpha(theme.palette.primary.main, 0.08),
-    transform: 'translateY(-2px)',
-    boxShadow: theme.shadows[4],
-  },
-  '&:active': {
-    cursor: 'grabbing',
-    transform: 'translateY(0)',
-  },
 }));
 
 const ActionButton = styled(IconButton)(({ theme }) => ({

@@ -1,5 +1,6 @@
 import { Node, Edge } from 'reactflow';
-import { CustomNode, CustomEdge } from './nodes';
+import { CustomEdge } from './nodes';
+import { ButtonAssetPlacement, ButtonAssetStyle } from './buttonAsset';
 
 export interface Media {
   id: string;
@@ -12,7 +13,9 @@ export interface Media {
 export interface Choice {
   id: string;
   text: string;
-  nextStepId: string;
+  nextStepId?: string;
+  style?: ButtonAssetStyle;
+  placement?: ButtonAssetPlacement;
 }
 
 export interface Step {
@@ -37,7 +40,7 @@ export interface NodeData {
     media: Media[];
   };
   choices: Choice[];
-  onDataChange?: (nodeId: string, data: any) => void;
+  onDataChange?: (nodeId: string, data: Partial<NodeData>) => void;
   onVideoEnd?: (nodeId: string) => void;
   onChoiceSelect?: (nodeId: string, choice: Choice) => void;
   isPlaybackMode?: boolean;

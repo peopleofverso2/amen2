@@ -1,14 +1,10 @@
-import React from 'react';
 import { EdgeProps, BaseEdge, getStraightPath } from 'reactflow';
 
 export default function ChoiceEdge({
-  id,
   sourceX,
   sourceY,
   targetX,
   targetY,
-  sourcePosition,
-  targetPosition,
   style = {},
   data,
   markerEnd,
@@ -16,10 +12,8 @@ export default function ChoiceEdge({
   const [edgePath] = getStraightPath({
     sourceX,
     sourceY,
-    sourcePosition,
     targetX,
     targetY,
-    targetPosition,
   });
 
   return (

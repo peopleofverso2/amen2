@@ -1,16 +1,13 @@
 import { Node, Edge } from 'reactflow';
+import { ButtonAssetPlacement, ButtonAssetStyle } from './buttonAsset';
 
 export type NodeType = 'text' | 'video' | 'interaction' | 'voucher' | 'reward';
 
 export interface InteractionButton {
   id: string;
   label: string;
-  style?: {
-    backgroundColor?: string;
-    textColor?: string;
-    borderRadius?: string;
-    fontSize?: string;
-  };
+  style?: ButtonAssetStyle;
+  placement?: ButtonAssetPlacement;
   position?: {
     x: number;  // pourcentage de la largeur (0-100)
     y: number;  // pourcentage de la hauteur (0-100)
@@ -21,9 +18,9 @@ export interface InteractionButton {
   };
 }
 
-export interface BaseNodeData {
+export interface BaseNodeData<TUpdate = unknown> {
   label: string;
-  onDataChange?: (data: any) => void;
+  onDataChange?: (data: TUpdate) => void;
 }
 
 export interface TextNodeData extends BaseNodeData {
@@ -57,23 +54,12 @@ export interface RewardNodeData extends BaseNodeData {
   value: number;
 }
 
-export interface ButtonNodeData extends BaseNodeData {
+export interface ButtonNodeData extends BaseNodeData<Partial<ButtonNodeData>> {
   text?: string;
-  style?: {
-    backgroundColor?: string;
-    textColor?: string;
-    borderRadius?: string;
-    fontSize?: string;
-    borderStyle?: 'none' | 'solid' | 'dashed' | 'dotted';
-    borderColor?: string;
-    borderWidth?: string;
-    boxShadow?: string;
+  style?: ButtonAssetStyle & {
     padding?: string;
     textAlign?: 'left' | 'center' | 'right';
     transition?: string;
-    hoverBackgroundColor?: string;
-    hoverTextColor?: string;
-    hoverScale?: string;
   };
   variant?: 'contained' | 'outlined' | 'text';
   size?: 'small' | 'medium' | 'large';
@@ -82,6 +68,7 @@ export interface ButtonNodeData extends BaseNodeData {
     position: 'start' | 'end';
   };
   targetNodeId?: string;
+  onButtonClick?: () => void;
   onDataChange?: (data: Partial<ButtonNodeData>) => void;
   onNavigate?: (targetNodeId: string) => void;
   isPlaybackMode?: boolean;

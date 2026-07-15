@@ -19,8 +19,27 @@ import { Box } from '@mui/material';
 import VideoNode2 from './nodes/VideoNode2';
 import ChoiceEdge from './edges/ChoiceEdge';
 import { ProjectService } from '../../services/projectService';
-import { Choice, Project } from '../../types/project';
+import {
+  Choice,
+  Project,
+  ProjectSocial,
+  SceneContribution,
+  SceneContributionStatus,
+  SceneVoteValue,
+} from '../../types/project';
+import {
+  addContribution,
+  addContributionComment,
+  CreateContributionInput,
+  createSceneContribution,
+  normalizeProjectSocial,
+  recordContributionRating,
+  recordContributionVote,
+  refreshPopularStatuses,
+  updateContributionStatus,
+} from '../../services/socialService';
 import Sidebar from './controls/Sidebar';
+import SocialScenePanel from './social/SocialScenePanel';
 import 'reactflow/dist/style.css';
 
 const getId = (): string => {
@@ -40,6 +59,7 @@ function ScenarioEditorContent({ projectId, onBackToLibrary }: ScenarioEditorPro
   const [nodes, setNodes] = useState<Node[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
   const [activeNodeId, setActiveNodeId] = useState<string | null>(null);
+  const [selectedSceneNodeId, setSelectedSceneNodeId] = useState<string | null>(null);
   const [isPlaybackMode, setIsPlaybackMode] = useState(false);
   const [project, setProject] = useState<Project | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -55,6 +75,11 @@ function ScenarioEditorContent({ projectId, onBackToLibrary }: ScenarioEditorPro
   const edgeTypes = useMemo<EdgeTypes>(() => ({
     'choice': ChoiceEdge,
   }), []);
+
+  const social = useMemo(
+    () => normalizeProjectSocial(project?.social),
+    [project?.social]
+  );
 
   // Gérer la fin d'une vidéo
   const onVideoEnd = useCallback((nodeId: string) => {
@@ -140,6 +165,12 @@ function ScenarioEditorContent({ projectId, onBackToLibrary }: ScenarioEditorPro
   }, [isPlaybackMode, getConnectedNodeId, onVideoEnd, handleChoiceSelect]);
 
   const onNodesChange = useCallback((changes: NodeChange[]) => {
+    const selectedChange = changes.find(
+      (change) => change.type === 'select' && 'selected' in change && change.selected
+    );
+    if (selectedChange && 'id' in selectedChange) {
+      setSelectedSceneNodeId(selectedChange.id);
+    }
     setNodes((nds) => applyNodeChanges(changes, nds));
   }, []);
 
@@ -318,6 +349,8 @@ function ScenarioEditorContent({ projectId, onBackToLibrary }: ScenarioEditorPro
         position,
         data: { 
           label: `${type} node`,
+          sceneTitle: 'Nouvelle scene',
+          sceneDescription: '',
           onDataChange: handleNodeDataChange,
           mediaId: undefined,
           choices: [],
@@ -327,9 +360,123 @@ function ScenarioEditorContent({ projectId, onBackToLibrary }: ScenarioEditorPro
       };
 
       setNodes((nds) => nds.concat(newNode));
+      setSelectedSceneNodeId(newNodeId);
     },
     [screenToFlowPosition, handleNodeDataChange, getConnectedNodeId]
   );
+
+  const updateSocial = useCallback((nextSocial: ProjectSocial) => {
+    setProject((current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        social: refreshPopularStatuses(nextSocial),
+        updatedAt: new Date().toISOString(),
+      };
+    });
+  }, []);
+
+  const handleAddContribution = useCallback((input: CreateContributionInput) => {
+    const contribution = createSceneContribution(input);
+    updateSocial(addContribution(social, contribution));
+  }, [social, updateSocial]);
+
+  const handleVoteContribution = useCallback((contributionId: string, value: SceneVoteValue) => {
+    updateSocial(recordContributionVote(social, contributionId, value));
+  }, [social, updateSocial]);
+
+  const handleRateContribution = useCallback((contributionId: string, value: number) => {
+    updateSocial(recordContributionRating(social, contributionId, value));
+  }, [social, updateSocial]);
+
+  const handleCommentContribution = useCallback((contributionId: string, body: string) => {
+    updateSocial(addContributionComment(social, contributionId, body));
+  }, [social, updateSocial]);
+
+  const handleSetContributionStatus = useCallback((
+    contributionId: string,
+    status: SceneContributionStatus
+  ) => {
+    updateSocial(updateContributionStatus(social, contributionId, status));
+  }, [social, updateSocial]);
+
+  const makeSocialEdge = useCallback((source: string, target: string, label: string): Edge => ({
+    id: `social-${source}-${target}-${Date.now()}`,
+    source,
+    target,
+    type: 'choice',
+    data: {
+      choiceId: null,
+      text: label,
+    },
+    style: { strokeWidth: 2, strokeDasharray: '6 4' },
+  }), []);
+
+  const handlePromoteContribution = useCallback((contribution: SceneContribution) => {
+    const targetNode = nodes.find((node) => node.id === contribution.targetNodeId);
+    if (!targetNode) {
+      return;
+    }
+
+    const newNodeId = getId();
+    const yOffset = contribution.type === 'alternative' ? 220 : 0;
+    const promotedNode: Node = {
+      id: newNodeId,
+      type: targetNode.type || 'videoNode2',
+      position: {
+        x: targetNode.position.x + 390,
+        y: targetNode.position.y + yOffset,
+      },
+      data: {
+        label: contribution.title,
+        sceneTitle: contribution.title,
+        sceneDescription: contribution.body,
+        socialContributionId: contribution.id,
+        onDataChange: handleNodeDataChange,
+        onVideoEnd,
+        onChoiceSelect: handleChoiceSelect,
+        mediaId: undefined,
+        choices: [],
+        isPlaybackMode: false,
+        getConnectedNodeId: (buttonId: string) => getConnectedNodeId(newNodeId, buttonId),
+      },
+    };
+
+    setNodes((currentNodes) => [...currentNodes, promotedNode]);
+    setEdges((currentEdges) => {
+      if (contribution.type === 'alternative') {
+        return currentEdges;
+      }
+
+      const directOutgoing = currentEdges.filter(
+        (edge) => edge.source === contribution.targetNodeId && !edge.sourceHandle
+      );
+      const firstDirectOutgoing = directOutgoing[0];
+      const sourceToPromoted = makeSocialEdge(contribution.targetNodeId, newNodeId, contribution.title);
+
+      if (contribution.type === 'insert' && firstDirectOutgoing) {
+        const promotedToNext = makeSocialEdge(newNodeId, firstDirectOutgoing.target, 'Suite');
+        return [
+          ...currentEdges.filter((edge) => edge.id !== firstDirectOutgoing.id),
+          sourceToPromoted,
+          promotedToNext,
+        ];
+      }
+
+      return [...currentEdges, sourceToPromoted];
+    });
+    setSelectedSceneNodeId(newNodeId);
+    updateSocial(updateContributionStatus(social, contribution.id, 'canon'));
+  }, [
+    nodes,
+    social,
+    handleNodeDataChange,
+    onVideoEnd,
+    handleChoiceSelect,
+    getConnectedNodeId,
+    makeSocialEdge,
+    updateSocial,
+  ]);
 
   // Charger le projet au démarrage
   useEffect(() => {
@@ -343,7 +490,7 @@ function ScenarioEditorContent({ projectId, onBackToLibrary }: ScenarioEditorPro
         const loadedProject = await projectService.loadProject(projectId);
         if (loadedProject && isSubscribed) {
           console.log('Project loaded:', loadedProject);
-          setProject(loadedProject);
+          setSelectedSceneNodeId(loadedProject.nodes[0]?.id || null);
           
           // Mise à jour des nœuds avec les callbacks
           const nodesWithCallbacks = loadedProject.nodes.map(node => ({
@@ -357,6 +504,10 @@ function ScenarioEditorContent({ projectId, onBackToLibrary }: ScenarioEditorPro
             },
           }));
           
+          setProject({
+            ...loadedProject,
+            social: normalizeProjectSocial(loadedProject.social),
+          });
           setNodes(nodesWithCallbacks);
           setEdges(loadedProject.edges);
         }
@@ -410,6 +561,7 @@ function ScenarioEditorContent({ projectId, onBackToLibrary }: ScenarioEditorPro
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
             onEdgesDelete={onEdgesDelete}
+            onNodeClick={(_, node) => setSelectedSceneNodeId(node.id)}
             onDrop={onDrop}
             onDragOver={onDragOver}
             nodeTypes={nodeTypes}
@@ -432,6 +584,21 @@ function ScenarioEditorContent({ projectId, onBackToLibrary }: ScenarioEditorPro
             />
           </ReactFlow>
         </div>
+
+        {project && (
+          <SocialScenePanel
+            nodes={nodes}
+            selectedNodeId={selectedSceneNodeId}
+            social={social}
+            onSelectNode={(nodeId) => setSelectedSceneNodeId(nodeId)}
+            onAddContribution={handleAddContribution}
+            onVoteContribution={handleVoteContribution}
+            onRateContribution={handleRateContribution}
+            onCommentContribution={handleCommentContribution}
+            onSetContributionStatus={handleSetContributionStatus}
+            onPromoteContribution={handlePromoteContribution}
+          />
+        )}
 
         <Sidebar
           onSave={handleSave}

@@ -29,4 +29,5 @@ backups/
 
 # Runtime publication snapshots
 server/published/*.json
+server/data/*.json
 .vercel

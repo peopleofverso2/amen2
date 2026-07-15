@@ -51,6 +51,10 @@ import {
 } from './button/buttonAsset';
 
 interface VideoNodeData {
+  label?: string;
+  sceneTitle?: string;
+  sceneDescription?: string;
+  socialContributionId?: string;
   mediaId?: string;
   choices?: Choice[];
   onDataChange?: (id: string, data: Partial<VideoNodeData>) => void;
@@ -690,6 +694,8 @@ export default function VideoNode2({ id, data, selected }: VideoNodeProps) {
     () => (data.choices ?? []).map((choice) => normalizeChoice(choice)),
     [data.choices]
   );
+  const sceneTitle = data.sceneTitle || data.label || 'Scene';
+  const sceneDescription = data.sceneDescription || '';
 
   const updateChoices = useCallback(
     (nextChoices: Choice[]) => {
@@ -920,9 +926,18 @@ export default function VideoNode2({ id, data, selected }: VideoNodeProps) {
             }}
           >
             <MovieIcon sx={{ fontSize: 48, color: 'action.active' }} />
-            <Typography variant="body1" color="text.secondary">
-              Add Video
+            <Typography variant="subtitle1" color="text.primary" sx={{ fontWeight: 700, textAlign: 'center' }}>
+              {sceneTitle}
             </Typography>
+            {sceneDescription ? (
+              <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center' }}>
+                {sceneDescription}
+              </Typography>
+            ) : (
+              <Typography variant="body2" color="text.secondary">
+                Add Video
+              </Typography>
+            )}
           </Box>
         ) : (
           <Box>
@@ -988,6 +1003,18 @@ export default function VideoNode2({ id, data, selected }: VideoNodeProps) {
 
             {!data.isPlaybackMode && (
               <Box sx={{ p: 2 }}>
+                {(sceneTitle || sceneDescription) && (
+                  <Box sx={{ mb: 1.5 }}>
+                    <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                      {sceneTitle}
+                    </Typography>
+                    {sceneDescription && (
+                      <Typography variant="caption" color="text.secondary">
+                        {sceneDescription}
+                      </Typography>
+                    )}
+                  </Box>
+                )}
                 <Button
                   variant="outlined"
                   fullWidth

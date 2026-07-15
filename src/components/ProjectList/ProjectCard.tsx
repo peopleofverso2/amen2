@@ -3,6 +3,7 @@ import {
   Card,
   CardContent,
   CardActions,
+  Chip,
   Typography,
   IconButton,
   Box,
@@ -47,6 +48,32 @@ const ProjectCard: React.FC<ProjectCardProps> = ({
         <Typography variant="body2">
           Last modified: {formatDate(project.updatedAt)}
         </Typography>
+        {project.socialSummary && project.socialSummary.contributionCount > 0 && (
+          <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap', mt: 2 }}>
+            <Chip
+              size="small"
+              label={`${project.socialSummary.contributionCount} propositions`}
+              color="primary"
+              variant="outlined"
+            />
+            {project.socialSummary.canonCount > 0 && (
+              <Chip
+                size="small"
+                label={`${project.socialSummary.canonCount} canon`}
+                color="success"
+                variant="outlined"
+              />
+            )}
+            {project.socialSummary.popularCount > 0 && (
+              <Chip
+                size="small"
+                label={`${project.socialSummary.popularCount} populaires`}
+                color="secondary"
+                variant="outlined"
+              />
+            )}
+          </Box>
+        )}
       </CardContent>
       <CardActions>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>

@@ -18,6 +18,74 @@ export interface Choice {
   placement?: ButtonAssetPlacement;
 }
 
+export type SceneContributionType = 'insert' | 'alternative' | 'continuation';
+
+export type SceneContributionStatus = 'experimental' | 'popular' | 'canon' | 'archived';
+
+export type SceneVoteValue = -1 | 1;
+
+export interface SceneVote {
+  id: string;
+  voterName: string;
+  value: SceneVoteValue;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SceneRating {
+  id: string;
+  voterName: string;
+  value: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SceneComment {
+  id: string;
+  authorName: string;
+  body: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SceneContribution {
+  id: string;
+  targetNodeId: string;
+  type: SceneContributionType;
+  status: SceneContributionStatus;
+  title: string;
+  body: string;
+  authorName: string;
+  votes: SceneVote[];
+  ratings: SceneRating[];
+  comments: SceneComment[];
+  createdAt: string;
+  updatedAt: string;
+  promotedAt?: string;
+}
+
+export interface ProjectSocial {
+  version: 1;
+  mode: 'author_decides';
+  contributions: SceneContribution[];
+}
+
+export interface ContributionSummary {
+  upvotes: number;
+  downvotes: number;
+  score: number;
+  averageRating: number;
+  ratingCount: number;
+  commentCount: number;
+}
+
+export interface ProjectSocialSummary {
+  contributionCount: number;
+  canonCount: number;
+  popularCount: number;
+  averageRating: number;
+}
+
 export interface Step {
   id: string;
   title: string;
@@ -53,6 +121,7 @@ export interface Project {
   scenario: Scenario;
   nodes: Node<NodeData>[];
   edges: Edge<CustomEdge>[];
+  social?: ProjectSocial;
   createdAt: string;
   updatedAt: string;
 }
@@ -63,6 +132,7 @@ export interface ProjectMetadata {
   description: string;
   createdAt: string;
   updatedAt: string;
+  socialSummary?: ProjectSocialSummary;
 }
 
 export interface ProjectLibraryState {

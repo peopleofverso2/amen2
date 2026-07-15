@@ -6,10 +6,12 @@ const fs = require('fs');
 const { randomUUID } = require('crypto');
 const ffmpeg = require('fluent-ffmpeg');
 const ffmpegPath = require('@ffmpeg-installer/ffmpeg').path;
+const { createProjectStore } = require('./projectStore');
 ffmpeg.setFfmpegPath(ffmpegPath);
 
 const app = express();
 const port = process.env.PORT || 3000;
+const projectStore = createProjectStore({ rootDir: path.join(__dirname, '..') });
 
 // Configuration détaillée de CORS
 app.use(cors({
@@ -91,7 +93,93 @@ const isValidPublishPayload = (value) => {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 };
 
+const asyncRoute = (handler) => async (req, res, next) => {
+  try {
+    await handler(req, res, next);
+  } catch (error) {
+    next(error);
+  }
+};
+
 // Routes
+app.get('/api/health/db', asyncRoute(async (req, res) => {
+  const health = await projectStore.health();
+  res.json({
+    ok: true,
+    ...health,
+  });
+}));
+
+app.get('/api/projects', asyncRoute(async (req, res) => {
+  const projects = await projectStore.listMetadata();
+  res.json(projects);
+}));
+
+app.get('/api/projects/export', asyncRoute(async (req, res) => {
+  const projects = await projectStore.listProjects();
+  res.json(projects);
+}));
+
+app.post('/api/projects/import', asyncRoute(async (req, res) => {
+  const projects = Array.isArray(req.body?.projects) ? req.body.projects : req.body;
+  if (!Array.isArray(projects)) {
+    return res.status(400).json({ error: 'Liste de projets invalide' });
+  }
+
+  const imported = await projectStore.importProjects(projects);
+  return res.status(201).json({
+    imported: imported.length,
+    projects: imported,
+  });
+}));
+
+app.post('/api/projects', asyncRoute(async (req, res) => {
+  const title = String(req.body?.scenarioTitle || req.body?.title || '').trim();
+  const description = String(req.body?.description || '');
+
+  if (!title) {
+    return res.status(400).json({ error: 'Le titre du projet est obligatoire' });
+  }
+
+  const project = await projectStore.createProject(title, description);
+  return res.status(201).json(project);
+}));
+
+app.get('/api/projects/:id', asyncRoute(async (req, res) => {
+  const project = await projectStore.getProject(req.params.id);
+  if (!project) {
+    return res.status(404).json({ error: 'Projet non trouvé' });
+  }
+
+  return res.json(project);
+}));
+
+app.put('/api/projects/:id', asyncRoute(async (req, res) => {
+  const project = await projectStore.saveProject({
+    ...req.body,
+    projectId: req.params.id,
+  });
+  return res.json(project);
+}));
+
+app.patch('/api/projects/:id', asyncRoute(async (req, res) => {
+  const project = await projectStore.patchProject(req.params.id, req.body || {});
+  if (!project) {
+    return res.status(404).json({ error: 'Projet non trouvé' });
+  }
+
+  return res.json(project);
+}));
+
+app.delete('/api/projects/:id', asyncRoute(async (req, res) => {
+  const deleted = await projectStore.deleteProject(req.params.id);
+  if (!deleted) {
+    return res.status(404).json({ error: 'Projet non trouvé' });
+  }
+
+  return res.json({ message: 'Projet supprimé', id: req.params.id });
+}));
+
 app.post('/api/media/upload', upload.single('file'), async (req, res) => {
   try {
     if (!req.file) {
